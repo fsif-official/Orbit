@@ -114,7 +114,7 @@ function splitTags(value: string | undefined): string[] {
 // progress_note, original_input_id) carry the richer fields this UI grew
 // during the mock phase — see gas/README.md for the full column list.
 
-const AVATAR_PALETTE = ['#6366f1', '#db2777', '#059669', '#d97706', '#0ea5e9', '#8b5cf6', '#e11d48', '#0891b2']
+export const AVATAR_PALETTE = ['#6366f1', '#db2777', '#059669', '#d97706', '#0ea5e9', '#8b5cf6', '#e11d48', '#0891b2']
 
 function colorForId(id: string): string {
   let hash = 0
@@ -149,8 +149,8 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
     name: r.name,
     affiliation,
     role: roleFromSheet(r.role),
-    avatarColor: colorForId(r.id),
-    initials: initialsForName(r.name),
+    avatarColor: r.avatar_color || colorForId(r.id),
+    initials: r.avatar_initials || initialsForName(r.name),
     // Fact (past-performance) matching is explicitly out of scope for the
     // alpha (cold start, no history yet) — always empty.
     facts: [],
@@ -303,6 +303,8 @@ export const remoteApi = {
     postToGas('updateDependsOn', { taskId, dependsOnIds }),
   updateVisibility: (taskId: string, visibility: 'all' | '幹部') =>
     postToGas('updateVisibility', { taskId, visibility }),
+  updateAvatar: (memberId: string, avatarColor: string, initials: string) =>
+    postToGas('updateAvatar', { memberId, avatarColor, initials }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to

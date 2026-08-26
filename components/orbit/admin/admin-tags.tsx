@@ -19,12 +19,12 @@ export function AdminTags() {
     <div className="mx-auto max-w-4xl px-6 py-8">
       <h1 className="text-xl font-semibold tracking-tight">Tags</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        INPUT画面の「必要スキル」「カテゴリ」で選べる選択肢です。ここで消すまで残り続けます。
+        INPUT画面の「要求スキル」「カテゴリ」で選べる選択肢です。ここで消すまで残り続けます。
       </p>
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2">
         <TagGroup
-          title="必要スキル"
+          title="要求スキル"
           options={skillOptions}
           onAdd={addSkillOption}
           onRemove={removeSkillOption}

@@ -111,6 +111,7 @@ interface OrbitContextValue extends OrbitState {
   toggleUnavailableDate: (memberId: string, date: string) => void
   updateSchedule: (id: string, startDate: string | null, deadline: string | null) => void
   updateDependsOn: (id: string, dependsOnIds: string[]) => void
+  updateAvatar: (memberId: string, avatarColor: string, initials: string) => void
   notifications: import('./types').NotificationItem[]
   getMember: (id: string | null) => Member | undefined
   getProject: (id: string) => Project | undefined
@@ -683,6 +684,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  const updateAvatar = useCallback(
+    (memberId: string, avatarColor: string, initials: string) => {
+      const trimmedInitials = initials.trim().slice(0, 2).toUpperCase()
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, avatarColor, initials: trimmedInitials || m.initials } : m)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateAvatar(memberId, avatarColor, trimmedInitials))
+    },
+    [runRemote],
+  )
+
   const persistOnboarded = useCallback((ids: Set<string>) => {
     try {
       window.localStorage.setItem(ONBOARDED_STORAGE_KEY, JSON.stringify([...ids]))
@@ -858,6 +870,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     toggleUnavailableDate,
     updateSchedule,
     updateDependsOn,
+    updateAvatar,
     notifications,
     getMember,
     getProject,

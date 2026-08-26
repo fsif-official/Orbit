@@ -323,7 +323,7 @@ function TemplateTypeCard({
         <input
           value={draft.skills}
           onChange={(e) => setDraft({ ...draft, skills: e.target.value })}
-          placeholder="必要スキル（カンマ区切り）"
+          placeholder="要求スキル（カンマ区切り）"
           className="col-span-2 h-8 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary sm:col-span-3"
         />
         <Button

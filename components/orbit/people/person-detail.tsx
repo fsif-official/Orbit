@@ -6,12 +6,15 @@ import { useNav } from '@/lib/orbit/nav'
 import { Avatar, StatusBadge, DifficultyBadge, SectionLabel } from '@/components/orbit/primitives'
 import { CalendarView } from '@/components/orbit/output/calendar-view'
 import { TaskDetailDrawer } from '@/components/orbit/output/task-detail-drawer'
+import { Modal } from '@/components/orbit/modal'
+import { Button } from '@/components/ui/button'
 import { formatDeadlineFull } from '@/lib/orbit/utils'
 import { isAdminRole } from '@/lib/orbit/types'
+import { AVATAR_PALETTE } from '@/lib/orbit/remote'
 import { cn } from '@/lib/utils'
 import { ArrowLeft, Plus, Target, Sparkles, Activity, X, Pencil, Check, CalendarOff } from 'lucide-react'
 
-type Tab = 'overview' | 'calendar'
+type Tab = 'overview' | 'growth' | 'calendar'
 
 const ROLE_LABEL: Record<string, string> = { 代表: '代表', 班長: '班長' }
 
@@ -19,18 +22,22 @@ export function PersonDetail({ id }: { id: string }) {
   const {
     getMember,
     visibleTasks: tasks,
+    members,
     currentUser,
     updateWill,
     updateJudgment,
     getProject,
     updateDisplayName,
     toggleUnavailableDate,
+    updateAvatar,
   } = useOrbit()
   const { go } = useNav()
   const [tab, setTab] = useState<Tab>('overview')
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
+  const [avatarOpen, setAvatarOpen] = useState(false)
+  const [initialsDraft, setInitialsDraft] = useState('')
   const member = getMember(id)
 
   if (!member) {
@@ -54,6 +61,22 @@ export function PersonDetail({ id }: { id: string }) {
   })
   const topCategories = Array.from(categoryTally.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3)
 
+  // 人材育成: skills required by open work that the member doesn't have
+  // yet, what that skill would unlock, and who already has it
+  const openTasks = tasks.filter((t) => t.status !== 'done')
+  const skillDemand = new Map<string, typeof tasks>()
+  openTasks.forEach((t) => {
+    t.skills.forEach((s) => {
+      if (!skillDemand.has(s)) skillDemand.set(s, [])
+      skillDemand.get(s)!.push(t)
+    })
+  })
+  const missingSkills = Array.from(skillDemand.entries())
+    .filter(([s]) => !member.skills.includes(s))
+    .sort((a, b) => b[1].length - a[1].length)
+  const mentorsFor = (skill: string) =>
+    members.filter((m) => m.id !== member.id && m.skills.includes(skill))
+
   const isSelf = currentUser?.id === member.id
   const isAdmin = !!currentUser && isAdminRole(currentUser.role)
   const displayName = member.displayName || member.name
@@ -70,7 +93,21 @@ export function PersonDetail({ id }: { id: string }) {
 
       {/* Header */}
       <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-5">
-        <Avatar member={member} size={56} />
+        <div className="relative shrink-0">
+          <Avatar member={member} size={56} />
+          {isSelf && (
+            <button
+              onClick={() => {
+                setInitialsDraft(member.initials)
+                setAvatarOpen(true)
+              }}
+              className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:text-foreground"
+              aria-label="アイコンを変更"
+            >
+              <Pencil className="size-2.5" />
+            </button>
+          )}
+        </div>
         <div className="min-w-0 flex-1">
           {editingName ? (
             <div className="flex items-center gap-1.5">
@@ -135,6 +172,7 @@ export function PersonDetail({ id }: { id: string }) {
         {(
           [
             ['overview', 'Overview'],
+            ...(isSelf ? [['growth', '人材育成']] : []),
             ['calendar', 'Calendar'],
           ] as [Tab, string][]
         ).map(([key, label]) => (
@@ -152,6 +190,69 @@ export function PersonDetail({ id }: { id: string }) {
           </button>
         ))}
       </div>
+
+      {tab === 'growth' && (
+        <div className="mt-5 flex flex-col gap-4">
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="size-4 text-primary" />
+              <SectionLabel>足りないスキル</SectionLabel>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              今、進行中・未着手のタスクが求めているスキルのうち、あなたがまだ持っていないものです。
+              身につけると担当できるタスクが増えます。
+            </p>
+            {missingSkills.length === 0 ? (
+              <p className="mt-3 text-sm text-muted-foreground">
+                今のところ、不足しているスキルはありません。
+              </p>
+            ) : (
+              <ul className="mt-3 flex flex-col gap-3">
+                {missingSkills.slice(0, 6).map(([skill, unlocked]) => {
+                  const mentors = mentorsFor(skill)
+                  return (
+                    <li key={skill} className="rounded-lg border border-border/60 bg-secondary/30 p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1 rounded-md bg-primary-muted px-2 py-0.5 text-xs font-semibold text-accent-foreground">
+                          {skill}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {unlocked.length}件のタスクで求められています
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        身につけるとできるようになるタスク：
+                        {unlocked
+                          .slice(0, 3)
+                          .map((t) => t.name)
+                          .join('、')}
+                        {unlocked.length > 3 && ` 他${unlocked.length - 3}件`}
+                      </p>
+                      {mentors.length > 0 && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground">
+                            すでにできる人：
+                          </span>
+                          {mentors.slice(0, 5).map((m) => (
+                            <button
+                              key={m.id}
+                              onClick={() => go({ name: 'person', id: m.id })}
+                              className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-1.5 py-0.5 text-xs hover:bg-secondary"
+                            >
+                              <Avatar member={m} size={16} />
+                              {m.displayName || m.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
 
       {tab === 'calendar' && (
         <div className="mt-5 flex flex-col gap-4">
@@ -333,6 +434,61 @@ export function PersonDetail({ id }: { id: string }) {
       )}
 
       <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} />
+
+      <Modal open={avatarOpen} onClose={() => setAvatarOpen(false)}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold">アイコンを変更</h2>
+          <button onClick={() => setAvatarOpen(false)} aria-label="閉じる">
+            <X className="size-4 text-muted-foreground" />
+          </button>
+        </div>
+        <div className="flex items-center gap-3">
+          <Avatar
+            member={{ ...member, initials: (initialsDraft || member.initials).toUpperCase() }}
+            size={48}
+          />
+          <input
+            value={initialsDraft}
+            onChange={(e) => setInitialsDraft(e.target.value.slice(0, 2))}
+            maxLength={2}
+            placeholder={member.initials}
+            className="h-9 w-20 rounded-md border border-border bg-card px-2 text-center text-sm uppercase outline-none focus:border-primary"
+            aria-label="イニシャル（2文字まで）"
+          />
+        </div>
+        <p className="mb-1.5 mt-4 text-xs font-medium text-muted-foreground">カラー</p>
+        <div className="flex flex-wrap gap-2">
+          {AVATAR_PALETTE.map((color) => (
+            <button
+              key={color}
+              onClick={() => {
+                updateAvatar(member.id, color, initialsDraft || member.initials)
+                setAvatarOpen(false)
+              }}
+              className={cn(
+                'size-8 rounded-full ring-2 ring-offset-2 ring-offset-card transition-transform hover:scale-110',
+                member.avatarColor === color ? 'ring-primary' : 'ring-transparent',
+              )}
+              style={{ backgroundColor: color }}
+              aria-label={`色を選択 ${color}`}
+            />
+          ))}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" className="h-9" onClick={() => setAvatarOpen(false)}>
+            キャンセル
+          </Button>
+          <Button
+            className="h-9"
+            onClick={() => {
+              updateAvatar(member.id, member.avatarColor, initialsDraft || member.initials)
+              setAvatarOpen(false)
+            }}
+          >
+            保存
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }

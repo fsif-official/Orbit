@@ -116,6 +116,12 @@ function doPost(e) {
           visibility: body.visibility === '幹部' ? '幹部' : '全員',
         })
         break
+      case 'updateAvatar':
+        result = updateMemberFields(body.memberId, {
+          avatar_color: body.avatarColor || '',
+          avatar_initials: body.initials || '',
+        })
+        break
       default:
         throw new Error('Unknown action: ' + body.action)
     }

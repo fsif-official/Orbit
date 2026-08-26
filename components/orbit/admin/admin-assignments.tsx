@@ -100,7 +100,7 @@ function MatchPanel({
           </div>
         </div>
         <div className="mt-4">
-          <div className="text-xs font-medium text-muted-foreground">必要スキル</div>
+          <div className="text-xs font-medium text-muted-foreground">要求スキル</div>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {task.skills.map((s) => (
               <Tag key={s}>{s}</Tag>

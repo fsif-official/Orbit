@@ -205,7 +205,7 @@ export function ParsedTaskCard({
           </select>
         </Field>
 
-        <Field label="必要スキル" className="col-span-2 sm:col-span-4">
+        <Field label="要求スキル" className="col-span-2 sm:col-span-4">
           <div className="flex flex-wrap items-center gap-1.5">
             {task.skills.map((s) => (
               <Tag

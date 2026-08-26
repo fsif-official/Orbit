@@ -469,7 +469,7 @@ function DrawerBody({
           <Row label="難易度">
             <DifficultyBadge difficulty={task.difficulty} />
           </Row>
-          <Row label="必要スキル">
+          <Row label="要求スキル">
             <div className="flex flex-wrap gap-1.5">
               {task.skills.map((s) => (
                 <Tag key={s}>{s}</Tag>
