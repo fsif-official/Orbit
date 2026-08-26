@@ -16,7 +16,6 @@ import {
   ClipboardCheck,
   LogOut,
   Moon,
-  Settings,
   ShieldCheck,
   Sun,
   User,
@@ -202,10 +201,6 @@ export function Header() {
                 >
                   <User className="size-4" />
                   プロフィール
-                </MenuItem>
-                <MenuItem onClick={() => setMenuOpen(false)}>
-                  <Settings className="size-4" />
-                  設定
                 </MenuItem>
                 <div className="my-1 h-px bg-border" />
                 <MenuItem onClick={logout}>

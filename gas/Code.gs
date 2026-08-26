@@ -125,6 +125,9 @@ function doPost(e) {
       case 'addMember':
         result = addMember(body.name, body.email, body.affiliation, body.role)
         break
+      case 'updateEmail':
+        result = updateMemberFields(body.memberId, { email: body.email || '' })
+        break
       default:
         throw new Error('Unknown action: ' + body.action)
     }
