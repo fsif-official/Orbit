@@ -82,7 +82,7 @@ function MatchPanel({
 
   function handleAssign(m: Member) {
     assignTask(task.id, [...task.assigneeIds, m.id])
-    toast(`${m.name} をアサインしました`)
+    toast(`${m.displayName || m.name} をアサインしました`)
   }
 
   return (
@@ -100,7 +100,7 @@ function MatchPanel({
           </div>
         </div>
         <div className="mt-4">
-          <div className="text-xs font-medium text-muted-foreground">必要スキル</div>
+          <div className="text-xs font-medium text-muted-foreground">要求スキル</div>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {task.skills.map((s) => (
               <Tag key={s}>{s}</Tag>
@@ -179,8 +179,8 @@ function CandidateCard({
         <Avatar member={member} size={36} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">{member.name}</span>
-            {member.role === 'admin' ? null : (
+            <span className="text-sm font-medium">{member.displayName || member.name}</span>
+            {member.role === '一般' && (
               <span className="text-xs text-muted-foreground">{member.affiliation}</span>
             )}
           </div>

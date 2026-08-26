@@ -122,7 +122,7 @@ export function ProjectDetail({ id }: { id: string }) {
                     >
                       <Avatar member={m} size={32} />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{m.name}</p>
+                        <p className="truncate text-sm font-medium">{m.displayName || m.name}</p>
                         <p className="truncate text-xs text-muted-foreground">{m.affiliation}</p>
                       </div>
                       <span className="text-xs text-muted-foreground">{count}件</span>

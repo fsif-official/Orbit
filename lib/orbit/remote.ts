@@ -15,7 +15,7 @@ import type {
   Task,
   TaskStatus,
 } from './types'
-import { STATUS_LABEL } from './types'
+import { STATUS_LABEL, isAdminRole } from './types'
 
 // NEXT_PUBLIC_ vars are inlined at build time by Next.js. They must be
 // referenced by their literal full name (not a dynamic key) to be inlined.
@@ -114,45 +114,46 @@ function splitTags(value: string | undefined): string[] {
 // progress_note, original_input_id) carry the richer fields this UI grew
 // during the mock phase — see gas/README.md for the full column list.
 
-const AVATAR_PALETTE = ['#6366f1', '#db2777', '#059669', '#d97706', '#0ea5e9', '#8b5cf6', '#e11d48', '#0891b2']
+export const AVATAR_PALETTE = ['#6366f1', '#db2777', '#059669', '#d97706', '#0ea5e9', '#8b5cf6', '#e11d48', '#0891b2']
 
-function colorForId(id: string): string {
+export function colorForId(id: string): string {
   let hash = 0
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0
   return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length]
 }
 
-function initialsForName(name: string): string {
+export function initialsForName(name: string): string {
   const cleaned = name.replace(/^（例）/, '').trim()
   const parts = cleaned.split(/\s+/).filter(Boolean)
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
   return cleaned.slice(0, 2).toUpperCase()
 }
 
-// 代表・班長 both map to the app's 'admin' role. Full project-scoped 班長
-// permissions (design doc §3) aren't implemented yet — a 班長 currently
-// gets full admin access, not just their own project_ids.
+// Admins can define custom permission levels above the fixed 一般 baseline
+// (see store.tsx's roleLevels), so any non-blank sheet value is trusted
+// as-is — only a blank cell falls back to the baseline.
 function roleFromSheet(role: string): Role {
-  return role === '一般' ? 'member' : 'admin'
+  return role && role.trim() ? role.trim() : '一般'
 }
 
 function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Project>): Member {
   const projectIds = splitTags(r.project_ids)
   const will = splitTags(r.will_tags)
   const judgment = splitTags(r.judgment_tags)
+  const role = roleFromSheet(r.role)
   const affiliation =
     projectIds.length > 0
       ? projectIds.map((pid) => projectsById.get(pid)?.name ?? pid).join(' / ')
-      : r.role === '代表'
+      : isAdminRole(role)
         ? '運営'
         : ''
   return {
     id: r.id,
     name: r.name,
     affiliation,
-    role: roleFromSheet(r.role),
-    avatarColor: colorForId(r.id),
-    initials: initialsForName(r.name),
+    role,
+    avatarColor: r.avatar_color || colorForId(r.id),
+    initials: r.avatar_initials || initialsForName(r.name),
     // Fact (past-performance) matching is explicitly out of scope for the
     // alpha (cold start, no history yet) — always empty.
     facts: [],
@@ -163,6 +164,9 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
     skills: [...will, ...judgment],
     email: r.email || undefined,
     notify: /^(true|1|yes)$/i.test((r.notify_new_task || '').trim()),
+    displayName: r.display_name || undefined,
+    unavailableDates: splitTags(r.unavailable_dates),
+    reportsToId: r.reports_to_id || undefined,
   }
 }
 
@@ -188,6 +192,7 @@ function mapTaskRow(r: Record<string, string>): Task {
     projectId: r.project_id,
     department: (r.department || '未分類') as Department,
     assigneeIds: splitTags(r.assignee_id),
+    startDate: r.start_date || null,
     deadline: r.due_date || null,
     dueTime: r.due_time || null,
     category: r.category || '',
@@ -203,6 +208,8 @@ function mapTaskRow(r: Record<string, string>): Task {
     progress: r.progress_note || undefined,
     progressHistory: [],
     pendingApproval: r.approval_status === '承認待ち',
+    dependsOnIds: splitTags(r.depends_on_ids),
+    visibility: r.visibility === '幹部' ? '幹部' : 'all',
   }
 }
 
@@ -240,12 +247,14 @@ export interface CreateTaskPayload {
   skills: string[]
   difficulty: Difficulty
   priority: Priority
+  startDate?: string | null
   deadline: string | null
   dueTime?: string | null
   assigneeIds?: string[]
   creatorId?: string
   originalInputId?: string
   pendingApproval?: boolean
+  visibility?: 'all' | '幹部'
 }
 
 async function postToGas<T = unknown>(action: string, payload: Record<string, unknown>): Promise<T> {
@@ -284,6 +293,23 @@ export const remoteApi = {
   removeMember: (memberId: string) => postToGas('removeMember', { memberId }),
   updateNotify: (memberId: string, notify: boolean) =>
     postToGas('updateNotify', { memberId, notify }),
+  updateRole: (memberId: string, role: Role) => postToGas('updateRole', { memberId, role }),
+  updateReportsTo: (memberId: string, reportsToId: string | null) =>
+    postToGas('updateReportsTo', { memberId, reportsToId }),
+  updateDisplayName: (memberId: string, displayName: string) =>
+    postToGas('updateDisplayName', { memberId, displayName }),
+  updateUnavailableDates: (memberId: string, dates: string[]) =>
+    postToGas('updateUnavailableDates', { memberId, dates }),
+  updateSchedule: (taskId: string, startDate: string | null, deadline: string | null) =>
+    postToGas('updateSchedule', { taskId, startDate, deadline }),
+  updateDependsOn: (taskId: string, dependsOnIds: string[]) =>
+    postToGas('updateDependsOn', { taskId, dependsOnIds }),
+  updateVisibility: (taskId: string, visibility: 'all' | '幹部') =>
+    postToGas('updateVisibility', { taskId, visibility }),
+  updateAvatar: (memberId: string, avatarColor: string, initials: string) =>
+    postToGas('updateAvatar', { memberId, avatarColor, initials }),
+  addMember: (name: string, email: string, affiliation: string, role: Role) =>
+    postToGas<{ id: string }>('addMember', { name, email, affiliation, role }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to
@@ -298,11 +324,13 @@ export function toCreatePayload(tempId: string, p: ParsedTask, creatorId?: strin
     skills: p.skills,
     difficulty: p.difficulty,
     priority: p.priority,
+    startDate: p.startDate,
     deadline: p.deadline,
     dueTime: p.dueTime,
     assigneeIds: p.assigneeIds,
     creatorId,
     originalInputId,
     pendingApproval: true,
+    visibility: p.visibility ?? 'all',
   }
 }

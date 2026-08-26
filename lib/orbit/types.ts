@@ -2,7 +2,23 @@ export type TaskStatus = 'todo' | 'progress' | 'review' | 'fix' | 'done'
 
 export type Difficulty = '新人歓迎' | '少し経験必要' | '経験者向け'
 
-export type Role = 'member' | 'admin'
+// 一般 is the fixed, implicit baseline every member starts at — it carries
+// no admin access. Everything above it is an admin-defined permission
+// level (default 班長/代表, but admins can add/remove levels freely — see
+// store.tsx's roleLevels/addRoleLevel/removeRoleLevel), so Role is just a
+// free-form string rather than a fixed union.
+export type Role = string
+
+export const BASE_ROLE = '一般'
+
+export function isAdminRole(role: Role): boolean {
+  return role !== BASE_ROLE
+}
+
+// visibility gate for 幹部 (leadership)-only tasks — see Task.visibility
+export function canSeeExecTasks(role: Role): boolean {
+  return role !== BASE_ROLE
+}
 
 export type Priority = '高' | '中' | '低'
 
@@ -52,6 +68,14 @@ export interface Member {
   // whether this member should receive an email when a new task is
   // registered and needs approval — see store.tsx's notifyRecipients
   notify?: boolean
+  // shown instead of `name` throughout the UI when set (item: display name)
+  displayName?: string
+  // dates (YYYY-MM-DD) this member has marked themselves unavailable on
+  unavailableDates?: string[]
+  // "admin of admins": which member notifications about this member's tasks
+  // should be routed to (e.g. a 班長's 事業部長/代表) — falls back to the
+  // default 代表 recipients when unset, see store.tsx's notifyTargetsFor
+  reportsToId?: string
 }
 
 export interface Project {
@@ -83,6 +107,7 @@ export interface Task {
   projectId: string
   department: Department
   assigneeIds: string[]
+  startDate?: string | null // YYYY-MM-DD, when work is expected to begin
   deadline: string | null // YYYY-MM-DD
   dueTime?: string | null // HH:MM, optional time-of-day on top of deadline
   category: string
@@ -103,6 +128,11 @@ export interface Task {
   // tasks created from an INPUT submission start out awaiting an admin's
   // approval, and are hidden from the normal workspace views until then
   pendingApproval?: boolean
+  // ids of tasks that must happen before this one can start — powers the
+  // 依存関係 (dependency tree) view, separate from the ワークフロー kanban
+  dependsOnIds?: string[]
+  // '幹部' restricts visibility to 班長/代表 (see canSeeExecTasks); undefined/'all' = everyone
+  visibility?: 'all' | '幹部'
 }
 
 // Result of natural-language parsing, before approval
@@ -111,6 +141,7 @@ export interface ParsedTask {
   name: string
   projectId: string
   department: Department
+  startDate?: string | null
   deadline: string | null
   dueTime?: string | null
   category: string
@@ -119,6 +150,7 @@ export interface ParsedTask {
   priority: Priority
   assigneeIds: string[]
   approved: boolean
+  visibility?: 'all' | '幹部'
 }
 
 export const STATUS_ORDER: TaskStatus[] = [
@@ -157,4 +189,14 @@ export const PRIORITY_LINE: Record<Priority, string> = {
   高: 'var(--priority-high)',
   中: 'var(--priority-medium)',
   低: 'var(--priority-low)',
+}
+
+// An in-app notification item — derived on the fly from current task/member
+// state (see store.tsx's `notifications`), not persisted.
+export interface NotificationItem {
+  id: string
+  kind: 'approval' | 'review' | 'deadline'
+  title: string
+  detail: string
+  taskId: string
 }

@@ -67,6 +67,43 @@ export function matchSkills(task: { skills: string[] }, member: Member): string[
   return task.skills.filter((s) => member.skills.includes(s))
 }
 
+// crude tokenizer for Japanese/English mixed task names — splits on
+// whitespace and common punctuation, drops very short tokens
+function tokenize(name: string): Set<string> {
+  return new Set(
+    name
+      .split(/[\s、。・,.\-()（）「」/]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 2),
+  )
+}
+
+// Finds existing tasks that look like they might duplicate a newly-parsed
+// one — same category and enough name-token overlap. Used at approval time
+// to flag "this might already be covered" before an admin approves.
+export function findSimilarTasks(
+  candidate: { id?: string; name: string; category: string; projectId: string },
+  existing: Task[],
+  minScore = 0.4,
+): { task: Task; score: number }[] {
+  const candTokens = tokenize(candidate.name)
+  if (candTokens.size === 0) return []
+  return existing
+    .filter((t) => t.id !== candidate.id)
+    .map((t) => {
+      const tTokens = tokenize(t.name)
+      const overlap = [...candTokens].filter((w) => tTokens.has(w)).length
+      const union = new Set([...candTokens, ...tTokens]).size
+      let score = union > 0 ? overlap / union : 0
+      if (t.category && t.category === candidate.category) score += 0.15
+      if (t.projectId === candidate.projectId) score += 0.1
+      return { task: t, score }
+    })
+    .filter((r) => r.score >= minScore)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+}
+
 export function rankCandidates(
   task: { skills: string[]; assigneeIds?: string[] },
   members: Member[],

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
@@ -15,12 +15,27 @@ import { ArrowRight, History, Sparkles, Trash2, TriangleAlert, Wand2, X } from '
 
 type Phase = 'input' | 'parsing' | 'result'
 
+// Keeps the in-progress draft text across screen switches (INPUT unmounts
+// whenever the user navigates away), scoped per-user so it doesn't leak
+// between demo accounts on the same browser.
+function draftKey(userId: string | null | undefined): string {
+  return `orbit-input-draft-${userId ?? 'anon'}`
+}
+function loadDraft(userId: string | null | undefined): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    return window.localStorage.getItem(draftKey(userId)) ?? ''
+  } catch {
+    return ''
+  }
+}
+
 export function InputScreen() {
   const { addTasksFromInput, setMode, currentUser, inputs, tasks } = useOrbit()
   const { go } = useNav()
   const toast = useToast()
 
-  const [text, setText] = useState('')
+  const [text, setText] = useState(() => loadDraft(currentUser?.id))
   const [phase, setPhase] = useState<Phase>('input')
   const [parsed, setParsed] = useState<ParsedTask[]>([])
   const [emptyError, setEmptyError] = useState(false)
@@ -29,6 +44,17 @@ export function InputScreen() {
   const [historyInput, setHistoryInput] = useState<TaskInput | null>(null)
 
   const myInputs = inputs.filter((i) => i.createdById === currentUser?.id)
+
+  // persist the draft text as the user types, so it survives switching to
+  // OUTPUT and back (or a page reload) — cleared once tasks are registered
+  useEffect(() => {
+    try {
+      if (text) window.localStorage.setItem(draftKey(currentUser?.id), text)
+      else window.localStorage.removeItem(draftKey(currentUser?.id))
+    } catch {
+      /* ignore */
+    }
+  }, [text, currentUser?.id])
 
   const handleParse = () => {
     if (!text.trim()) {
@@ -260,8 +286,14 @@ export function InputScreen() {
                     ),
                   )
                 }
+                onDelete={() => setParsed((prev) => prev.filter((x) => x.id !== p.id))}
               />
             ))}
+            {parsed.length === 0 && (
+              <div className="rounded-xl border border-dashed border-border bg-card py-10 text-center text-sm text-muted-foreground">
+                すべてのタスクを削除しました。
+              </div>
+            )}
           </div>
 
           <div className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">

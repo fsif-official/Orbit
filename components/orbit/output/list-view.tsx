@@ -86,7 +86,7 @@ export function ListView({
           <option value="unassigned">未アサイン</option>
           {members.map((m) => (
             <option key={m.id} value={m.id}>
-              {m.name}
+              {m.displayName || m.name}
             </option>
           ))}
         </select>
@@ -146,7 +146,7 @@ export function ListView({
                             className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:underline"
                           >
                             <Avatar member={m} size={22} />
-                            {m.name}
+                            {m.displayName || m.name}
                           </button>
                         ))}
                       </div>

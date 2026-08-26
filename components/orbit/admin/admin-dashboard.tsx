@@ -1,20 +1,15 @@
 'use client'
 
 import { useOrbit } from '@/lib/orbit/store'
-import { useNav } from '@/lib/orbit/nav'
+import { useTaskDrawer } from '@/lib/orbit/task-drawer'
 import { Avatar, ProjectTag } from '@/components/orbit/primitives'
 import { isOverdue, daysSince, formatDeadline } from '@/lib/orbit/utils'
 import { STATUS_LABEL } from '@/lib/orbit/types'
 import { CircleAlert, Clock, UserX, Activity, FileClock } from 'lucide-react'
 
 export function AdminDashboard() {
-  const { visibleTasks: tasks, pendingTasks, getProject, setMode } = useOrbit()
-  const { go } = useNav()
-
-  const openInOutput = () => {
-    setMode('output')
-    go({ name: 'output' })
-  }
+  const { visibleTasks: tasks, pendingTasks, getProject } = useOrbit()
+  const { openTask } = useTaskDrawer()
 
   const inProgress = tasks.filter((t) => t.status === 'progress')
   const waiting = tasks.filter((t) => t.status === 'review')
@@ -67,7 +62,7 @@ export function AdminDashboard() {
             icon={<FileClock className="size-4 text-primary" />}
             tasks={pendingTasks}
             renderMeta={(t) => getProject(t.projectId)?.name ?? ''}
-            onOpen={() => go({ name: 'admin', section: 'approvals' })}
+            onOpen={openTask}
             getProject={getProject}
           />
           <AttentionGroup
@@ -78,7 +73,7 @@ export function AdminDashboard() {
               const d = daysSince(t.lastActivity)
               return d && d > 0 ? `${d}日前から確認待ち` : '確認待ち'
             }}
-            onOpen={openInOutput}
+            onOpen={openTask}
             getProject={getProject}
           />
           <AttentionGroup
@@ -86,7 +81,7 @@ export function AdminDashboard() {
             icon={<CircleAlert className="size-4 text-destructive" />}
             tasks={overdue}
             renderMeta={(t) => `期限：${formatDeadline(t.deadline)}`}
-            onOpen={openInOutput}
+            onOpen={openTask}
             getProject={getProject}
           />
           <AttentionGroup
@@ -94,7 +89,7 @@ export function AdminDashboard() {
             icon={<UserX className="size-4 text-primary" />}
             tasks={unassigned}
             renderMeta={(t) => getProject(t.projectId)?.name ?? ''}
-            onOpen={() => go({ name: 'admin', section: 'assignments' })}
+            onOpen={openTask}
             getProject={getProject}
           />
           <AttentionGroup
@@ -102,7 +97,7 @@ export function AdminDashboard() {
             icon={<Activity className="size-4 text-muted-foreground" />}
             tasks={stale}
             renderMeta={(t) => `${daysSince(t.lastActivity)}日間更新なし`}
-            onOpen={openInOutput}
+            onOpen={openTask}
             getProject={getProject}
           />
         </div>

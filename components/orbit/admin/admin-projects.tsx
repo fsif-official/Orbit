@@ -124,7 +124,7 @@ export function AdminProjects() {
                     {pm.length > 0 ? (
                       <div className="flex -space-x-1.5">
                         {pm.slice(0, 6).map((m) => (
-                          <span key={m.id} className="rounded-full ring-2 ring-card" title={m.name}>
+                          <span key={m.id} className="rounded-full ring-2 ring-card" title={m.displayName || m.name}>
                             <Avatar member={m} size={22} />
                           </span>
                         ))}
@@ -323,7 +323,7 @@ function TemplateTypeCard({
         <input
           value={draft.skills}
           onChange={(e) => setDraft({ ...draft, skills: e.target.value })}
-          placeholder="必要スキル（カンマ区切り）"
+          placeholder="要求スキル（カンマ区切り）"
           className="col-span-2 h-8 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary sm:col-span-3"
         />
         <Button

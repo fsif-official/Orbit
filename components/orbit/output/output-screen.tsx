@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
 import { KanbanBoard } from './kanban-board'
@@ -9,27 +9,56 @@ import { ListView } from './list-view'
 import { PeopleView } from './people-view'
 import { ProjectView } from './project-view'
 import { DifficultyBoard } from './difficulty-board'
+import { DependencyView } from './dependency-view'
 import { TaskDetailDrawer } from './task-detail-drawer'
 import { cn } from '@/lib/utils'
-import { Columns3, LayoutList, CalendarDays, GaugeCircle, Inbox, Archive } from 'lucide-react'
+import {
+  Columns3,
+  LayoutList,
+  CalendarDays,
+  GaugeCircle,
+  GitBranch,
+  Inbox,
+  Archive,
+  X,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 type Target = 'all' | 'people' | 'projects' | 'archive'
-type View = 'workflow' | 'list' | 'calendar' | 'difficulty'
+type View = 'workflow' | 'list' | 'calendar' | 'difficulty' | 'dependency'
 
 export function OutputScreen() {
-  const { visibleTasks, archivedTasks } = useOrbit()
+  const { visibleTasks, archivedTasks, projects } = useOrbit()
   const { go } = useNav()
   const [target, setTarget] = useState<Target>('all')
   const [view, setView] = useState<View>('workflow')
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
+  const [projectFilter, setProjectFilter] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
 
   // choosing a 表示 (view) always jumps back to the "一覧" target, since the
-  // workflow/list/calendar/difficulty views only apply there
+  // workflow/list/calendar/difficulty/dependency views only apply there
   const selectView = (v: View) => {
     setView(v)
     setTarget('all')
   }
+
+  // project-unit / schedule-unit filtering, applied to the "一覧" target's views
+  const filteredTasks = useMemo(() => {
+    return visibleTasks.filter((t) => {
+      if (projectFilter && t.projectId !== projectFilter) return false
+      if (fromDate || toDate) {
+        const ref = t.deadline ?? t.startDate
+        if (!ref) return false
+        if (fromDate && ref < fromDate) return false
+        if (toDate && ref > toDate) return false
+      }
+      return true
+    })
+  }, [visibleTasks, projectFilter, fromDate, toDate])
+
+  const hasActiveFilter = !!(projectFilter || fromDate || toDate)
 
   return (
     <div className="mx-auto w-full max-w-[1360px] px-4 py-6 sm:px-6 lg:px-8">
@@ -82,7 +111,56 @@ export function OutputScreen() {
               <GaugeCircle className="size-3.5" />
               難易度
             </Seg>
+            <Seg active={target === 'all' && view === 'dependency'} onClick={() => selectView('dependency')}>
+              <GitBranch className="size-3.5" />
+              依存関係
+            </Seg>
           </Segment>
+
+          {target === 'all' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={projectFilter}
+                onChange={(e) => setProjectFilter(e.target.value)}
+                className="h-8 cursor-pointer rounded-lg border border-border bg-card px-2 text-xs outline-none focus:border-primary"
+              >
+                <option value="">すべてのプロジェクト</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                title="期間（開始）"
+                className="h-8 rounded-lg border border-border bg-card px-2 text-xs outline-none focus:border-primary"
+              />
+              <span className="text-xs text-muted-foreground">〜</span>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                title="期間（終了）"
+                className="h-8 rounded-lg border border-border bg-card px-2 text-xs outline-none focus:border-primary"
+              />
+              {hasActiveFilter && (
+                <button
+                  onClick={() => {
+                    setProjectFilter('')
+                    setFromDate('')
+                    setToDate('')
+                  }}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-3.5" />
+                  クリア
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -105,16 +183,19 @@ export function OutputScreen() {
           {target === 'people' && <PeopleView />}
           {target === 'projects' && <ProjectView />}
           {target === 'all' && view === 'workflow' && (
-            <KanbanBoard tasks={visibleTasks} onOpenTask={setOpenTaskId} />
+            <KanbanBoard tasks={filteredTasks} onOpenTask={setOpenTaskId} />
           )}
           {target === 'all' && view === 'list' && (
-            <ListView tasks={visibleTasks} onOpenTask={setOpenTaskId} />
+            <ListView tasks={filteredTasks} onOpenTask={setOpenTaskId} />
           )}
           {target === 'all' && view === 'calendar' && (
-            <CalendarView tasks={visibleTasks} onOpenTask={setOpenTaskId} />
+            <CalendarView tasks={filteredTasks} onOpenTask={setOpenTaskId} />
           )}
           {target === 'all' && view === 'difficulty' && (
-            <DifficultyBoard tasks={visibleTasks} onOpenTask={setOpenTaskId} />
+            <DifficultyBoard tasks={filteredTasks} onOpenTask={setOpenTaskId} />
+          )}
+          {target === 'all' && view === 'dependency' && (
+            <DependencyView tasks={filteredTasks} onOpenTask={setOpenTaskId} />
           )}
         </>
       )}

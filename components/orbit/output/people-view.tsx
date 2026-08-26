@@ -3,6 +3,7 @@
 import { useOrbit } from '@/lib/orbit/store'
 import { Avatar } from '@/components/orbit/primitives'
 import { useNav } from '@/lib/orbit/nav'
+import { BASE_ROLE } from '@/lib/orbit/types'
 
 export function PeopleView() {
   const { members, visibleTasks: tasks } = useOrbit()
@@ -24,9 +25,11 @@ export function PeopleView() {
             <div className="flex items-center gap-3">
               <Avatar member={m} size={44} />
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-foreground">{m.name}</p>
+                <p className="truncate text-sm font-semibold text-foreground">
+                  {m.displayName || m.name}
+                </p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {m.role === 'admin' ? '管理者' : m.affiliation}
+                  {m.role !== BASE_ROLE ? m.role : m.affiliation}
                 </p>
               </div>
             </div>

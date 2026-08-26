@@ -4,11 +4,16 @@ import { useEffect, useRef, useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
 import { useTheme } from '@/lib/orbit/theme'
+import { useTaskDrawer } from '@/lib/orbit/task-drawer'
+import { isAdminRole } from '@/lib/orbit/types'
 import { Avatar, OrbitMark } from './primitives'
 import { cn } from '@/lib/utils'
 import {
   Bell,
+  CalendarClock,
+  CheckCheck,
   ChevronDown,
+  ClipboardCheck,
   LogOut,
   Moon,
   Settings,
@@ -18,16 +23,22 @@ import {
 } from 'lucide-react'
 
 export function Header() {
-  const { currentUser, setMode, logout } = useOrbit()
+  const { currentUser, setMode, logout, notifications } = useOrbit()
   const { screen, go } = useNav()
   const { theme, toggle } = useTheme()
+  const { openTask } = useTaskDrawer()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [notifOpen, setNotifOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const notifRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false)
+      }
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false)
       }
     }
     document.addEventListener('mousedown', onClick)
@@ -93,14 +104,55 @@ export function Header() {
               <Moon className="size-[18px]" />
             )}
           </button>
-          <button
-            type="button"
-            className="relative flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            aria-label="通知"
-          >
-            <Bell className="size-[18px]" />
-            <span className="absolute right-2 top-2 size-1.5 rounded-full bg-primary" />
-          </button>
+          <div className="relative" ref={notifRef}>
+            <button
+              type="button"
+              onClick={() => setNotifOpen((o) => !o)}
+              className="relative flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              aria-label="通知"
+              aria-expanded={notifOpen}
+            >
+              <Bell className="size-[18px]" />
+              {notifications.length > 0 && (
+                <span className="absolute right-1.5 top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
+                  {notifications.length > 9 ? '9+' : notifications.length}
+                </span>
+              )}
+            </button>
+            {notifOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-80 overflow-hidden rounded-xl border border-border bg-popover shadow-lg animate-in fade-in slide-in-from-top-1">
+                <div className="border-b border-border px-3 py-2 text-sm font-semibold">通知</div>
+                <div className="max-h-96 overflow-y-auto orbit-scroll">
+                  {notifications.length === 0 && (
+                    <div className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
+                      <CheckCheck className="size-4" />
+                      新しい通知はありません
+                    </div>
+                  )}
+                  {notifications.map((n) => (
+                    <button
+                      key={n.id}
+                      onClick={() => {
+                        setNotifOpen(false)
+                        if (n.taskId) openTask(n.taskId)
+                      }}
+                      className="flex w-full items-start gap-2.5 border-b border-border px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-secondary"
+                    >
+                      {n.kind === 'deadline' ? (
+                        <CalendarClock className="mt-0.5 size-4 shrink-0 text-warning" />
+                      ) : (
+                        <ClipboardCheck className="mt-0.5 size-4 shrink-0 text-primary" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{n.title}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">{n.detail}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="relative" ref={menuRef}>
             <button
@@ -111,7 +163,7 @@ export function Header() {
             >
               <Avatar member={currentUser} size={28} />
               <span className="hidden text-sm font-medium sm:inline">
-                {currentUser.name}
+                {currentUser.displayName || currentUser.name}
               </span>
               <ChevronDown className="size-4 text-muted-foreground" />
             </button>
@@ -122,7 +174,7 @@ export function Header() {
                   <Avatar member={currentUser} size={34} />
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">
-                      {currentUser.name}
+                      {currentUser.displayName || currentUser.name}
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
                       {currentUser.affiliation}
@@ -130,7 +182,7 @@ export function Header() {
                   </div>
                 </div>
                 <div className="my-1 h-px bg-border" />
-                {currentUser.role === 'admin' && (
+                {isAdminRole(currentUser.role) && (
                   <MenuItem
                     onClick={() => {
                       setMenuOpen(false)

@@ -13,18 +13,21 @@ export function AdminTags() {
     removeSkillOption,
     addCategoryOption,
     removeCategoryOption,
+    roleLevels,
+    addRoleLevel,
+    removeRoleLevel,
   } = useOrbit()
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <h1 className="text-xl font-semibold tracking-tight">Tags</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        INPUT画面の「必要スキル」「カテゴリ」で選べる選択肢です。ここで消すまで残り続けます。
+        INPUT画面の「要求スキル」「カテゴリ」や、Membersの「役職」で選べる選択肢です。ここで消すまで残り続けます。
       </p>
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2">
         <TagGroup
-          title="必要スキル"
+          title="要求スキル"
           options={skillOptions}
           onAdd={addSkillOption}
           onRemove={removeSkillOption}
@@ -35,6 +38,19 @@ export function AdminTags() {
           onAdd={addCategoryOption}
           onRemove={removeCategoryOption}
         />
+        <div>
+          <TagGroup
+            title="権限レベル（一般より上）"
+            options={roleLevels}
+            onAdd={addRoleLevel}
+            onRemove={removeRoleLevel}
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            すべてのメンバーの初期値は「一般」です。ここで追加したレベルはAdmin →
+            Membersの役職選択に使え、レベルを削除するとそれを持っていたメンバーは
+            自動的に「一般」に戻ります。「一般」以外のレベルはすべて管理者画面へのアクセス権を持ちます。
+          </p>
+        </div>
       </div>
     </div>
   )
