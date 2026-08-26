@@ -9,6 +9,7 @@ import {
   useCallback,
 } from 'react'
 import type {
+  AdminSection,
   Member,
   Project,
   ProjectTemplateTask,
@@ -21,7 +22,7 @@ import type {
   ParsedTask,
   ProgressEntry,
 } from './types'
-import { canSeeExecTasks, BASE_ROLE } from './types'
+import { canSeeExecTasks, BASE_ROLE, DEFAULT_NON_TOP_SECTIONS, ADMIN_SECTIONS } from './types'
 import { MEMBERS, PROJECTS, SEED_TASKS, SEED_INPUTS } from './seed'
 import {
   colorForId,
@@ -101,6 +102,13 @@ interface OrbitContextValue extends OrbitState {
   roleLevels: string[]
   addRoleLevel: (name: string) => void
   removeRoleLevel: (name: string) => void
+  // per-role-level admin-screen section visibility (see types.ts's
+  // AdminSection/DEFAULT_NON_TOP_SECTIONS); the top role level always sees
+  // everything (isFullAdmin), so it's not represented here
+  rolePermissions: Record<string, AdminSection[]>
+  setRolePermissions: (role: string, sections: AdminSection[]) => void
+  // admin-screen sections currentUser's role is allowed to see
+  visibleAdminSections: AdminSection[]
   projectTemplates: Record<string, ProjectTemplateTask[]>
   projectTypes: string[]
   setProjectTemplateTasks: (type: string, tasks: ProjectTemplateTask[]) => void
@@ -157,6 +165,7 @@ const STORAGE_KEY = 'orbit-state-v2'
 const TAGS_STORAGE_KEY = 'orbit-tag-options'
 const ONBOARDED_STORAGE_KEY = 'orbit-onboarded-ids'
 const TEMPLATES_STORAGE_KEY = 'orbit-project-templates'
+const ROLE_PERMS_STORAGE_KEY = 'orbit-role-permissions'
 
 function loadState(): Partial<OrbitState> | null {
   if (typeof window === 'undefined') return null
@@ -198,6 +207,16 @@ function loadProjectTemplates(): Record<string, ProjectTemplateTask[]> {
   }
 }
 
+function loadRolePermissions(): Record<string, AdminSection[]> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(ROLE_PERMS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
 function uniq(list: string[]): string[] {
   return Array.from(new Set(list.map((s) => s.trim()).filter(Boolean)))
 }
@@ -215,6 +234,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS)
   const [categoryOptions, setCategoryOptions] = useState<string[]>(DEFAULT_CATEGORY_OPTIONS)
   const [roleLevels, setRoleLevels] = useState<string[]>(DEFAULT_ROLE_LEVELS)
+  const [rolePermissions, setRolePermissionsState] = useState<Record<string, AdminSection[]>>({})
   const [projectTemplates, setProjectTemplates] = useState<Record<string, ProjectTemplateTask[]>>({})
   const [onboardedIds, setOnboardedIds] = useState<Set<string>>(new Set())
   const [skillCertifiedEvent, setSkillCertifiedEvent] = useState<{
@@ -259,6 +279,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         if (tags.roleLevels) setRoleLevels(uniq(tags.roleLevels))
       }
       setProjectTemplates(loadProjectTemplates())
+      setRolePermissionsState(loadRolePermissions())
     }
     setOnboardedIds(new Set(loadOnboardedIds()))
     setHydrated(true)
@@ -295,6 +316,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         )
         setRoleLevels(s.roleLevels.length ? uniq(s.roleLevels) : DEFAULT_ROLE_LEVELS)
         setProjectTemplates(s.projectTemplates)
+        setRolePermissionsState(s.rolePermissions)
         setRemoteError(null)
       })
       .catch(reportRemoteError)
@@ -360,6 +382,16 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
   }, [projectTemplates, hydrated])
+
+  // persist per-role admin-section permissions (device-local, same caveat)
+  useEffect(() => {
+    if (!hydrated || isSettingsConfigured) return
+    try {
+      window.localStorage.setItem(ROLE_PERMS_STORAGE_KEY, JSON.stringify(rolePermissions))
+    } catch {
+      /* ignore */
+    }
+  }, [rolePermissions, hydrated])
 
   const login = useCallback((userId: string) => {
     setCurrentUserId(userId)
@@ -437,8 +469,28 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           return { ...m, role: BASE_ROLE }
         }),
       )
+      setRolePermissionsState((prev) => {
+        if (!(name in prev)) return prev
+        const nextPerms = { ...prev }
+        delete nextPerms[name]
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('role_permissions', JSON.stringify(nextPerms)))
+        return nextPerms
+      })
     },
     [roleLevels, runRemote],
+  )
+
+  const setRolePermissions = useCallback(
+    (role: string, sections: AdminSection[]) => {
+      setRolePermissionsState((prev) => {
+        const next = { ...prev, [role]: sections }
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('role_permissions', JSON.stringify(next)))
+        return next
+      })
+    },
+    [runRemote],
   )
 
   const setProjectTemplateTasks = useCallback(
@@ -983,6 +1035,18 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   )
   const isFullAdmin = useMemo(() => isFullAdminMember(currentUser), [isFullAdminMember, currentUser])
 
+  // which admin-screen sections the current (non-top) admin role can see —
+  // falls back to DEFAULT_NON_TOP_SECTIONS (everything but Members/Tags,
+  // matching the old fixed behavior) when no explicit choice was configured
+  const visibleAdminSections = useMemo<AdminSection[]>(() => {
+    if (isFullAdmin) return ADMIN_SECTIONS.map((s) => s.key)
+    if (!currentUser || currentUser.role === BASE_ROLE) return []
+    const sections = rolePermissions[currentUser.role] ?? DEFAULT_NON_TOP_SECTIONS
+    // dashboard is the redirect target for a disallowed section, so it must
+    // always stay reachable to avoid a redirect loop
+    return sections.includes('dashboard') ? sections : ['dashboard', ...sections]
+  }, [isFullAdmin, currentUser, rolePermissions])
+
   const adminProjects = useMemo(() => {
     if (isFullAdmin || !currentUser) return projects
     const scope = new Set(currentUser.projectIds ?? [])
@@ -1083,6 +1147,9 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     roleLevels,
     addRoleLevel,
     removeRoleLevel,
+    rolePermissions,
+    setRolePermissions,
+    visibleAdminSections,
     projectTemplates,
     projectTypes,
     setProjectTemplateTasks,

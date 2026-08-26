@@ -25,17 +25,36 @@ export type Screen =
 interface NavValue {
   screen: Screen
   go: (s: Screen) => void
+  goBack: () => void
+  canGoBack: boolean
 }
 
 const NavContext = createContext<NavValue | null>(null)
 
 export function NavProvider({ children }: { children: React.ReactNode }) {
   const [screen, setScreen] = useState<Screen>({ name: 'output' })
+  const [history, setHistory] = useState<Screen[]>([])
   const go = useCallback((s: Screen) => {
-    setScreen(s)
+    setScreen((prev) => {
+      setHistory((h) => [...h, prev])
+      return s
+    })
     if (typeof window !== 'undefined') window.scrollTo({ top: 0 })
   }, [])
-  return <NavContext.Provider value={{ screen, go }}>{children}</NavContext.Provider>
+  const goBack = useCallback(() => {
+    setHistory((h) => {
+      if (h.length === 0) return h
+      const prev = h[h.length - 1]
+      setScreen(prev)
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0 })
+      return h.slice(0, -1)
+    })
+  }, [])
+  return (
+    <NavContext.Provider value={{ screen, go, goBack, canGoBack: history.length > 0 }}>
+      {children}
+    </NavContext.Provider>
+  )
 }
 
 export function useNav() {

@@ -5,6 +5,7 @@
 // aren't set (e.g. local dev), the app falls back to the local seed data
 // exactly as before.
 import type {
+  AdminSection,
   Department,
   Difficulty,
   Member,
@@ -255,6 +256,7 @@ export interface RemoteSettings {
   categoryOptions: string[]
   roleLevels: string[]
   projectTemplates: Record<string, ProjectTemplateTask[]>
+  rolePermissions: Record<string, AdminSection[]>
 }
 
 // Reads the optional "Settings" sheet (key,value rows) — see
@@ -271,11 +273,19 @@ export async function fetchSettings(): Promise<RemoteSettings> {
   } catch {
     // malformed JSON in the sheet — fall back to empty rather than throwing
   }
+  let rolePermissions: Record<string, AdminSection[]> = {}
+  try {
+    const raw = byKey.get('role_permissions')
+    if (raw) rolePermissions = JSON.parse(raw)
+  } catch {
+    // malformed JSON in the sheet — fall back to empty rather than throwing
+  }
   return {
     skillOptions: splitTags(byKey.get('skill_options')),
     categoryOptions: splitTags(byKey.get('category_options')),
     roleLevels: splitTags(byKey.get('role_levels')),
     projectTemplates,
+    rolePermissions,
   }
 }
 

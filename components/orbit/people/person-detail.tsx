@@ -7,6 +7,7 @@ import { useToast } from '@/components/orbit/toast'
 import { Avatar, StatusBadge, DifficultyBadge, SectionLabel } from '@/components/orbit/primitives'
 import { CalendarView } from '@/components/orbit/output/calendar-view'
 import { TaskDetailDrawer } from '@/components/orbit/output/task-detail-drawer'
+import { EditableTags } from '@/components/orbit/editable-tags'
 import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
 import { formatDeadlineFull } from '@/lib/orbit/utils'
@@ -15,7 +16,6 @@ import { AVATAR_PALETTE } from '@/lib/orbit/remote'
 import { cn } from '@/lib/utils'
 import {
   ArrowLeft,
-  Plus,
   Target,
   Sparkles,
   Activity,
@@ -84,7 +84,7 @@ export function PersonDetail({ id }: { id: string }) {
   const [nameDraft, setNameDraft] = useState('')
   const [avatarOpen, setAvatarOpen] = useState(false)
   const [initialsDraft, setInitialsDraft] = useState('')
-  const [emailDraft, setEmailDraft] = useState<string | null>(null)
+  const [newEmail, setNewEmail] = useState('')
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const member = getMember(id)
@@ -113,6 +113,23 @@ export function PersonDetail({ id }: { id: string }) {
     } finally {
       setUploadingAvatar(false)
     }
+  }
+
+  const emails = (member.email ?? '')
+    .split(',')
+    .map((e) => e.trim())
+    .filter(Boolean)
+  const addEmail = () => {
+    const v = newEmail.trim()
+    if (!v || emails.includes(v)) {
+      setNewEmail('')
+      return
+    }
+    updateEmail(member.id, [...emails, v].join(','))
+    setNewEmail('')
+  }
+  const removeEmail = (email: string) => {
+    updateEmail(member.id, emails.filter((e) => e !== email).join(','))
   }
 
   const mine = tasks.filter((t) => t.assigneeIds.includes(member.id))
@@ -238,39 +255,56 @@ export function PersonDetail({ id }: { id: string }) {
       {isSelf && (
         <div className="mt-4 rounded-xl border border-border bg-card p-4">
           <SectionLabel>アカウント設定</SectionLabel>
-          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <label className="flex min-w-0 flex-1 items-center gap-2">
-              <Mail className="size-4 shrink-0 text-muted-foreground" />
-              <input
-                value={emailDraft ?? member.email ?? ''}
-                onChange={(e) => setEmailDraft(e.target.value)}
-                onBlur={() => {
-                  if (emailDraft !== null && emailDraft !== (member.email ?? '')) {
-                    updateEmail(member.id, emailDraft)
-                  }
-                  setEmailDraft(null)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') e.currentTarget.blur()
-                }}
-                placeholder="メールアドレス（通知の送信先）"
-                type="email"
-                className="h-8 w-full max-w-xs rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary"
-              />
-            </label>
-            <button
-              onClick={() => updateNotify(member.id, !member.notify)}
-              className={cn(
-                'flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors',
-                member.notify
-                  ? 'border-primary/30 bg-primary-muted text-accent-foreground'
-                  : 'border-border text-muted-foreground hover:bg-secondary',
-              )}
-            >
-              <Bell className="size-3.5" />
-              新規タスク通知 {member.notify ? 'ON' : 'OFF'}
-            </button>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            通知の送信先メールアドレスです。複数登録すると全てに届きます。
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <Mail className="size-4 shrink-0 text-muted-foreground" />
+            {emails.map((e) => (
+              <span
+                key={e}
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-secondary/60 px-1.5 py-0.5 text-xs font-medium"
+              >
+                {e}
+                <button
+                  onClick={() => removeEmail(e)}
+                  className="opacity-60 hover:opacity-100"
+                  aria-label={`${e} を削除`}
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+            <input
+              value={newEmail}
+              onChange={(ev) => setNewEmail(ev.target.value)}
+              onKeyDown={(ev) => {
+                if (ev.nativeEvent.isComposing || ev.keyCode === 229) return
+                if (ev.key === 'Enter') {
+                  ev.preventDefault()
+                  addEmail()
+                }
+              }}
+              onBlur={() => {
+                if (newEmail.trim()) addEmail()
+              }}
+              placeholder="メールアドレスを追加"
+              type="email"
+              className="h-7 w-48 rounded-md border border-dashed border-border-strong bg-background px-2 text-xs outline-none focus:border-primary"
+            />
           </div>
+          <button
+            onClick={() => updateNotify(member.id, !member.notify)}
+            className={cn(
+              'mt-3 flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors',
+              member.notify
+                ? 'border-primary/30 bg-primary-muted text-accent-foreground'
+                : 'border-border text-muted-foreground hover:bg-secondary',
+            )}
+          >
+            <Bell className="size-3.5" />
+            新規タスク通知 {member.notify ? 'ON' : 'OFF'}
+          </button>
         </div>
       )}
 
@@ -674,117 +708,6 @@ function TalentCard({
         </div>
       </div>
       {children}
-    </div>
-  )
-}
-
-function EditableTags({
-  tags,
-  editable,
-  onChange,
-  emptyText,
-  placeholder,
-  variant = 'will',
-  options = [],
-  onNewOption,
-}: {
-  tags: string[]
-  editable: boolean
-  onChange: (next: string[]) => void
-  emptyText: string
-  placeholder: string
-  variant?: 'will' | 'judgment'
-  // existing option pool selectable via dropdown (e.g. store.skillOptions),
-  // in addition to freely typing a new one
-  options?: string[]
-  onNewOption?: (value: string) => void
-}) {
-  const [adding, setAdding] = useState(false)
-  const [value, setValue] = useState('')
-  const selectableOptions = options.filter((o) => !tags.includes(o))
-
-  const commit = () => {
-    const v = value.trim()
-    if (v && !tags.includes(v)) {
-      onChange([...tags, v])
-      onNewOption?.(v)
-    }
-    setValue('')
-    setAdding(false)
-  }
-
-  const chipCls =
-    variant === 'judgment'
-      ? 'bg-violet-50 text-violet-700 border-violet-200'
-      : 'bg-primary-muted text-accent-foreground border-transparent'
-
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {tags.length === 0 && !adding && (
-        <span className="text-sm text-muted-foreground">{emptyText}</span>
-      )}
-      {tags.map((t) => (
-        <span
-          key={t}
-          className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium ${chipCls}`}
-        >
-          {t}
-          {editable && (
-            <button
-              onClick={() => onChange(tags.filter((x) => x !== t))}
-              className="opacity-60 hover:opacity-100"
-              aria-label={`${t} を削除`}
-            >
-              <X className="size-3" />
-            </button>
-          )}
-        </span>
-      ))}
-      {editable && selectableOptions.length > 0 && (
-        <select
-          value=""
-          onChange={(e) => {
-            const v = e.target.value
-            if (v) onChange([...tags, v])
-          }}
-          className="h-6 cursor-pointer rounded-md border border-dashed border-border-strong bg-transparent px-1.5 text-xs text-muted-foreground outline-none hover:border-border"
-          aria-label="既存の選択肢から追加"
-        >
-          <option value="">選択して追加</option>
-          {selectableOptions.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
-      )}
-      {editable &&
-        (adding ? (
-          <input
-            autoFocus
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing || e.keyCode === 229) return
-              if (e.key === 'Enter') commit()
-              if (e.key === 'Escape') {
-                setValue('')
-                setAdding(false)
-              }
-            }}
-            placeholder={placeholder}
-            className="h-6 w-32 rounded-md border border-primary bg-card px-1.5 text-xs outline-none"
-          />
-        ) : (
-          <button
-            onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-0.5 rounded-md border border-dashed border-border-strong px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-secondary"
-          >
-            <Plus className="size-3" />
-            追加
-          </button>
-        ))}
     </div>
   )
 }

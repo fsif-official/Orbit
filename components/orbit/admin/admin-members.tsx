@@ -4,7 +4,8 @@ import { useMemo, useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
 import { useToast } from '@/components/orbit/toast'
-import { Avatar, Tag } from '@/components/orbit/primitives'
+import { Avatar } from '@/components/orbit/primitives'
+import { EditableTags } from '@/components/orbit/editable-tags'
 import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
 import { Search, Bell, UserMinus, UserPlus, FolderKanban, Check } from 'lucide-react'
@@ -27,6 +28,9 @@ export function AdminMembers() {
     updateRole,
     updateReportsTo,
     updateMemberProjects,
+    updateJudgment,
+    skillOptions,
+    addSkillOption,
     roleLevels,
     addMember,
     isFullAdmin,
@@ -211,14 +215,17 @@ export function AdminMembers() {
                     <td className="max-w-[200px] px-4 py-3 text-xs text-muted-foreground">
                       {m.will.length > 0 ? m.will.join(' / ') : '—'}
                     </td>
-                    <td className="max-w-[220px] px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {m.judgment.length > 0 ? (
-                          m.judgment.slice(0, 3).map((j) => <Tag key={j}>{j}</Tag>)
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </div>
+                    <td className="min-w-[220px] max-w-[280px] px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <EditableTags
+                        tags={m.judgment}
+                        editable
+                        onChange={(next) => updateJudgment(m.id, next)}
+                        emptyText="—"
+                        placeholder="評価を追加"
+                        variant="judgment"
+                        options={skillOptions}
+                        onNewOption={addSkillOption}
+                      />
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs font-medium ${wl.className}`}>{wl.label}</span>

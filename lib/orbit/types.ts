@@ -15,6 +15,29 @@ export function isAdminRole(role: Role): boolean {
   return role !== BASE_ROLE
 }
 
+// admin-screen sidebar sections — used by store.tsx's rolePermissions to
+// gate which sections each non-top admin role level can see (Admin → Tags)
+export type AdminSection = 'dashboard' | 'assignments' | 'approvals' | 'projects' | 'members' | 'tags'
+
+export const ADMIN_SECTIONS: { key: AdminSection; label: string }[] = [
+  { key: 'dashboard', label: 'Dashboard' },
+  { key: 'approvals', label: 'Approvals' },
+  { key: 'assignments', label: 'Assignments' },
+  { key: 'projects', label: 'Projects' },
+  { key: 'members', label: 'Members' },
+  { key: 'tags', label: 'Tags' },
+]
+
+// Members/Tags manage org-wide config (roles, notification routing, the
+// shared skill/category/role-level pools) — not "this project's" scope, so
+// a non-top admin role doesn't get them unless explicitly granted.
+export const DEFAULT_NON_TOP_SECTIONS: AdminSection[] = [
+  'dashboard',
+  'approvals',
+  'assignments',
+  'projects',
+]
+
 // visibility gate for 幹部 (leadership)-only tasks — see Task.visibility
 export function canSeeExecTasks(role: Role): boolean {
   return role !== BASE_ROLE
@@ -68,6 +91,9 @@ export interface Member {
   judgment: string[]
   facts: { label: string; count: number }[]
   skills: string[]
+  // one or more addresses, comma-separated (MailApp/CalendarApp on the GAS
+  // side accept a comma-joined "to" string natively, so no backend changes
+  // are needed to support multiple notification recipients per member)
   email?: string
   // whether this member should receive an email when a new task is
   // registered and needs approval — see store.tsx's notifyRecipients

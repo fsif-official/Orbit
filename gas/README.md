@@ -203,10 +203,11 @@ localStorageにのみ保存され、他の人の画面には反映されませ�
 3. Settingsシートも他の3シートと同じ手順で「ウェブに公開」し、CSV URLを取得
 4. リポジトリの Secrets に `SETTINGS_CSV` としてこのURLを追加
 
-設定すると、要求スキル・カテゴリ・権限レベル・プロジェクトテンプレートの追加や
-削除がその場でSettingsシートに書き込まれ（`key` 列は `skill_options` /
-`category_options` / `role_levels` / `project_templates`、`value` 列はカンマ区切り
-文字列、テンプレートのみJSON文字列）、次回以降は誰の画面を開いてもそこから読み込ま
+設定すると、要求スキル・カテゴリ・権限レベル・権限レベルごとの管理画面表示範囲・
+プロジェクトテンプレートの追加や削除がその場でSettingsシートに書き込まれ（`key` 列は
+`skill_options` / `category_options` / `role_levels` / `role_permissions` /
+`project_templates`、`value` 列はカンマ区切り文字列、`role_permissions` と
+`project_templates` のみJSON文字列）、次回以降は誰の画面を開いてもそこから読み込ま
 れます。未設定の場合はこれまで通りブラウザごとのlocalStorageにフォールバックし、
 何も壊れません。
 

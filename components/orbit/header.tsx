@@ -9,6 +9,7 @@ import { isAdminRole } from '@/lib/orbit/types'
 import { Avatar, OrbitMark } from './primitives'
 import { cn } from '@/lib/utils'
 import {
+  ArrowLeft,
   Bell,
   CalendarClock,
   CheckCheck,
@@ -23,7 +24,7 @@ import {
 
 export function Header() {
   const { currentUser, setMode, logout, notifications } = useOrbit()
-  const { screen, go } = useNav()
+  const { screen, go, goBack, canGoBack } = useNav()
   const { theme, toggle } = useTheme()
   const { openTask } = useTaskDrawer()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -61,14 +62,27 @@ export function Header() {
     <header className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between gap-4 px-4 sm:px-6">
         {/* left */}
-        <button
-          type="button"
-          onClick={() => handleMode('output')}
-          className="flex shrink-0 items-center gap-2"
-        >
-          <OrbitMark size={22} />
-          <span className="text-[15px] font-semibold tracking-tight">Orbit</span>
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          {canGoBack && (
+            <button
+              type="button"
+              onClick={goBack}
+              className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              aria-label="前の画面に戻る"
+              title="戻る"
+            >
+              <ArrowLeft className="size-[18px]" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => handleMode('output')}
+            className="flex shrink-0 items-center gap-2"
+          >
+            <OrbitMark size={22} />
+            <span className="text-[15px] font-semibold tracking-tight">Orbit</span>
+          </button>
+        </div>
 
         {/* center: mode switch */}
         <div className="flex items-center rounded-lg border border-border bg-secondary p-0.5">

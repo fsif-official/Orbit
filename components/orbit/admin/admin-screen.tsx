@@ -13,11 +13,6 @@ import { LayoutDashboard, UserPlus, FileClock, FolderPlus, Users, Tags } from 'l
 
 type Section = 'dashboard' | 'assignments' | 'approvals' | 'projects' | 'members' | 'tags'
 
-// Members/Tags manage org-wide config (roles, notification routing, the
-// shared skill/category/role-level pools) — not "this project's" scope,
-// so a project-scoped admin (see store.tsx's isFullAdmin) doesn't get them.
-const FULL_ADMIN_ONLY: Section[] = ['members', 'tags']
-
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="size-4" /> },
   { key: 'approvals', label: 'Approvals', icon: <FileClock className="size-4" /> },
@@ -29,18 +24,19 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
 
 export function AdminScreen({ section }: { section: Section }) {
   const { go } = useNav()
-  const { pendingTasks, isFullAdmin } = useOrbit()
-  const nav = isFullAdmin ? NAV : NAV.filter((n) => !FULL_ADMIN_ONLY.includes(n.key))
+  const { pendingTasks, visibleAdminSections } = useOrbit()
+  const nav = NAV.filter((n) => visibleAdminSections.includes(n.key))
+  const allowed = visibleAdminSections.includes(section)
 
-  // a scoped admin landing on members/tags (stale link, direct nav) bounces
-  // to the dashboard instead of rendering an org-wide config screen
+  // a scoped admin landing on a section they can't see (stale link, direct
+  // nav) bounces to the dashboard instead of rendering it
   useEffect(() => {
-    if (!isFullAdmin && FULL_ADMIN_ONLY.includes(section)) {
+    if (!allowed) {
       go({ name: 'admin', section: 'dashboard' })
     }
-  }, [isFullAdmin, section, go])
+  }, [allowed, go])
 
-  if (!isFullAdmin && FULL_ADMIN_ONLY.includes(section)) return null
+  if (!allowed) return null
 
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)]">
