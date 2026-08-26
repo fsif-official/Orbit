@@ -26,9 +26,11 @@ import { MEMBERS, PROJECTS, SEED_TASKS, SEED_INPUTS } from './seed'
 import {
   colorForId,
   fetchRemoteData,
+  fetchSettings,
   initialsForName,
   isDriveConfigured,
   isRemoteConfigured,
+  isSettingsConfigured,
   remoteApi,
   toCreatePayload,
 } from './remote'
@@ -126,6 +128,15 @@ interface OrbitContextValue extends OrbitState {
   removeMember: (memberId: string) => void
   updateNotify: (memberId: string, notify: boolean) => void
   updateEmail: (memberId: string, email: string) => void
+  updateMemberProjects: (memberId: string, projectIds: string[]) => void
+  // true when currentUser holds the highest-ranked role level (unscoped
+  // admin access); false for a lower admin level, scoped to projectIds
+  isFullAdmin: boolean
+  // Dashboard/Approvals/Assignments/Projects data, filtered to the current
+  // user's own projectIds when they're a scoped (non-full) admin
+  adminProjects: Project[]
+  adminTasks: Task[]
+  adminPendingTasks: Task[]
   updateRole: (memberId: string, role: Role) => void
   updateReportsTo: (memberId: string, reportsToId: string | null) => void
   updateDisplayName: (memberId: string, displayName: string) => void
@@ -239,15 +250,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       if (saved.inputs) setInputs(saved.inputs)
       if (saved.mode) setModeState(saved.mode)
     }
-    const tags = loadTagOptions()
-    if (tags) {
-      if (tags.skills?.length) setSkillOptions(uniq([...DEFAULT_SKILL_OPTIONS, ...tags.skills]))
-      if (tags.categories?.length)
-        setCategoryOptions(uniq([...DEFAULT_CATEGORY_OPTIONS, ...tags.categories]))
-      if (tags.roleLevels) setRoleLevels(uniq(tags.roleLevels))
+    if (!isSettingsConfigured) {
+      const tags = loadTagOptions()
+      if (tags) {
+        if (tags.skills?.length) setSkillOptions(uniq([...DEFAULT_SKILL_OPTIONS, ...tags.skills]))
+        if (tags.categories?.length)
+          setCategoryOptions(uniq([...DEFAULT_CATEGORY_OPTIONS, ...tags.categories]))
+        if (tags.roleLevels) setRoleLevels(uniq(tags.roleLevels))
+      }
+      setProjectTemplates(loadProjectTemplates())
     }
     setOnboardedIds(new Set(loadOnboardedIds()))
-    setProjectTemplates(loadProjectTemplates())
     setHydrated(true)
   }, [])
 
@@ -267,6 +280,24 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         reportRemoteError(err)
         setRemoteStatus('error')
       })
+  }, [reportRemoteError])
+
+  // fetch the optional Settings sheet once, when configured — this is the
+  // source of truth for the skill/category/role-level pools and project
+  // templates instead of each browser's own localStorage copy
+  useEffect(() => {
+    if (!isSettingsConfigured) return
+    fetchSettings()
+      .then((s) => {
+        setSkillOptions(s.skillOptions.length ? uniq(s.skillOptions) : DEFAULT_SKILL_OPTIONS)
+        setCategoryOptions(
+          s.categoryOptions.length ? uniq(s.categoryOptions) : DEFAULT_CATEGORY_OPTIONS,
+        )
+        setRoleLevels(s.roleLevels.length ? uniq(s.roleLevels) : DEFAULT_ROLE_LEVELS)
+        setProjectTemplates(s.projectTemplates)
+        setRemoteError(null)
+      })
+      .catch(reportRemoteError)
   }, [reportRemoteError])
 
   // keep the skill/category pools growing with whatever actually shows up
@@ -306,9 +337,10 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentUserId, tasks, members, projects, inputs, mode, hydrated])
 
-  // persist skill/category/role-level option pools (device-local — see gas/README.md)
+  // persist skill/category/role-level option pools (device-local — see
+  // gas/README.md; skipped once the Settings sheet is the source of truth)
   useEffect(() => {
-    if (!hydrated) return
+    if (!hydrated || isSettingsConfigured) return
     try {
       window.localStorage.setItem(
         TAGS_STORAGE_KEY,
@@ -321,7 +353,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
 
   // persist project-type templates (device-local, same caveat as tags)
   useEffect(() => {
-    if (!hydrated) return
+    if (!hydrated || isSettingsConfigured) return
     try {
       window.localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(projectTemplates))
     } catch {
@@ -340,33 +372,64 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
 
   const setMode = useCallback((m: Mode) => setModeState(m), [])
 
-  const addSkillOption = useCallback((name: string) => {
-    const v = name.trim()
-    if (!v) return
-    setSkillOptions((prev) => (prev.includes(v) ? prev : [...prev, v]))
-  }, [])
-  const removeSkillOption = useCallback((name: string) => {
-    setSkillOptions((prev) => prev.filter((s) => s !== name))
-  }, [])
-  const addCategoryOption = useCallback((name: string) => {
-    const v = name.trim()
-    if (!v) return
-    setCategoryOptions((prev) => (prev.includes(v) ? prev : [...prev, v]))
-  }, [])
-  const removeCategoryOption = useCallback((name: string) => {
-    setCategoryOptions((prev) => prev.filter((c) => c !== name))
-  }, [])
+  // these option pools sync to the Settings sheet when configured (see
+  // gas/README.md) — each mutator computes the full next list explicitly
+  // (rather than an opaque setState updater) so it can push that same
+  // value to remoteApi.updateSetting right alongside the local update
+  const addSkillOption = useCallback(
+    (name: string) => {
+      const v = name.trim()
+      if (!v || skillOptions.includes(v)) return
+      const next = [...skillOptions, v]
+      setSkillOptions(next)
+      if (isSettingsConfigured) runRemote(remoteApi.updateSetting('skill_options', next.join(',')))
+    },
+    [skillOptions, runRemote],
+  )
+  const removeSkillOption = useCallback(
+    (name: string) => {
+      const next = skillOptions.filter((s) => s !== name)
+      setSkillOptions(next)
+      if (isSettingsConfigured) runRemote(remoteApi.updateSetting('skill_options', next.join(',')))
+    },
+    [skillOptions, runRemote],
+  )
+  const addCategoryOption = useCallback(
+    (name: string) => {
+      const v = name.trim()
+      if (!v || categoryOptions.includes(v)) return
+      const next = [...categoryOptions, v]
+      setCategoryOptions(next)
+      if (isSettingsConfigured) runRemote(remoteApi.updateSetting('category_options', next.join(',')))
+    },
+    [categoryOptions, runRemote],
+  )
+  const removeCategoryOption = useCallback(
+    (name: string) => {
+      const next = categoryOptions.filter((c) => c !== name)
+      setCategoryOptions(next)
+      if (isSettingsConfigured) runRemote(remoteApi.updateSetting('category_options', next.join(',')))
+    },
+    [categoryOptions, runRemote],
+  )
 
-  const addRoleLevel = useCallback((name: string) => {
-    const v = name.trim()
-    if (!v || v === BASE_ROLE) return
-    setRoleLevels((prev) => (prev.includes(v) ? prev : [...prev, v]))
-  }, [])
+  const addRoleLevel = useCallback(
+    (name: string) => {
+      const v = name.trim()
+      if (!v || v === BASE_ROLE || roleLevels.includes(v)) return
+      const next = [...roleLevels, v]
+      setRoleLevels(next)
+      if (isSettingsConfigured) runRemote(remoteApi.updateSetting('role_levels', next.join(',')))
+    },
+    [roleLevels, runRemote],
+  )
   // removing a level demotes anyone currently holding it back to 一般 —
   // same "reassign, don't orphan" pattern as removeMember's task unassign
   const removeRoleLevel = useCallback(
     (name: string) => {
-      setRoleLevels((prev) => prev.filter((r) => r !== name))
+      const next = roleLevels.filter((r) => r !== name)
+      setRoleLevels(next)
+      if (isSettingsConfigured) runRemote(remoteApi.updateSetting('role_levels', next.join(',')))
       setMembers((prev) =>
         prev.map((m) => {
           if (m.role !== name) return m
@@ -375,19 +438,28 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         }),
       )
     },
-    [runRemote],
+    [roleLevels, runRemote],
   )
 
-  const setProjectTemplateTasks = useCallback((type: string, tasksForType: ProjectTemplateTask[]) => {
-    setProjectTemplates((prev) => ({ ...prev, [type]: tasksForType }))
-  }, [])
-  const removeProjectType = useCallback((type: string) => {
-    setProjectTemplates((prev) => {
-      const next = { ...prev }
+  const setProjectTemplateTasks = useCallback(
+    (type: string, tasksForType: ProjectTemplateTask[]) => {
+      const next = { ...projectTemplates, [type]: tasksForType }
+      setProjectTemplates(next)
+      if (isSettingsConfigured)
+        runRemote(remoteApi.updateSetting('project_templates', JSON.stringify(next)))
+    },
+    [projectTemplates, runRemote],
+  )
+  const removeProjectType = useCallback(
+    (type: string) => {
+      const next = { ...projectTemplates }
       delete next[type]
-      return next
-    })
-  }, [])
+      setProjectTemplates(next)
+      if (isSettingsConfigured)
+        runRemote(remoteApi.updateSetting('project_templates', JSON.stringify(next)))
+    },
+    [projectTemplates, runRemote],
+  )
 
   const addTasksFromInput = useCallback(
     (text: string, parsed: ParsedTask[]) => {
@@ -722,6 +794,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  // which projects a project-scoped admin (see isFullAdmin) manages
+  const updateMemberProjects = useCallback(
+    (memberId: string, projectIds: string[]) => {
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, projectIds } : m)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateMemberProjects(memberId, projectIds))
+    },
+    [runRemote],
+  )
+
   const updateRole = useCallback(
     (memberId: string, role: Role) => {
       setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role } : m)))
@@ -884,12 +967,46 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [tasks],
   )
 
+  // A member holding the highest-ranked configured role level (see
+  // roleLevels — default top level is 代表) manages everything, matching
+  // today's behavior. Any other admin-level role is scoped to their own
+  // project_ids (design doc §3) — see admin-dashboard/approvals/
+  // assignments/projects, which use adminTasks/adminPendingTasks/
+  // adminProjects instead of the unscoped lists below.
+  const isFullAdminMember = useCallback(
+    (member: Member | null | undefined) => {
+      if (!member || member.role === BASE_ROLE) return false
+      if (roleLevels.length === 0) return true
+      return member.role === roleLevels[roleLevels.length - 1]
+    },
+    [roleLevels],
+  )
+  const isFullAdmin = useMemo(() => isFullAdminMember(currentUser), [isFullAdminMember, currentUser])
+
+  const adminProjects = useMemo(() => {
+    if (isFullAdmin || !currentUser) return projects
+    const scope = new Set(currentUser.projectIds ?? [])
+    return projects.filter((p) => scope.has(p.id))
+  }, [projects, isFullAdmin, currentUser])
+
+  const adminTasks = useMemo(() => {
+    if (isFullAdmin || !currentUser) return visibleTasks
+    const scope = new Set(currentUser.projectIds ?? [])
+    return visibleTasks.filter((t) => scope.has(t.projectId))
+  }, [visibleTasks, isFullAdmin, currentUser])
+
+  const adminPendingTasks = useMemo(() => {
+    if (isFullAdmin || !currentUser) return pendingTasks
+    const scope = new Set(currentUser.projectIds ?? [])
+    return pendingTasks.filter((t) => scope.has(t.projectId))
+  }, [pendingTasks, isFullAdmin, currentUser])
+
   const notifications = useMemo(() => {
     if (!currentUser) return []
     const items: import('./types').NotificationItem[] = []
     const isAdmin = currentUser.role !== '一般'
     if (isAdmin) {
-      pendingTasks.forEach((t) => {
+      adminPendingTasks.forEach((t) => {
         items.push({
           id: `approval-${t.id}`,
           kind: 'approval',
@@ -898,7 +1015,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           taskId: t.id,
         })
       })
-      visibleTasks
+      adminTasks
         .filter((t) => t.status === 'review')
         .forEach((t) => {
           items.push({
@@ -925,7 +1042,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         }
       })
     return items
-  }, [currentUser, pendingTasks, visibleTasks])
+  }, [currentUser, adminPendingTasks, adminTasks, visibleTasks])
 
   const projectTypes = useMemo(
     () =>
@@ -992,6 +1109,11 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     removeMember,
     updateNotify,
     updateEmail,
+    updateMemberProjects,
+    isFullAdmin,
+    adminProjects,
+    adminTasks,
+    adminPendingTasks,
     updateRole,
     updateReportsTo,
     updateDisplayName,

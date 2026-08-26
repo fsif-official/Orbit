@@ -59,6 +59,10 @@ export const MEMBERS: Member[] = [
     name: '佐藤 美咲',
     affiliation: 'Cosmo Base Media',
     role: '班長',
+    // 班長 is a project-scoped admin (design doc §3) — she only manages
+    // Cosmo Base Media's tasks/projects in the Admin screens, unlike 代表
+    // (see store.tsx's isFullAdmin)
+    projectIds: ['p-cosmo-media'],
     avatarColor: '#db2777',
     initials: 'SM',
     will: ['UI/UXをやりたい', '広報に興味がある', 'デザイン経験を増やしたい'],

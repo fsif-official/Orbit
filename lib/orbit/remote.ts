@@ -11,6 +11,7 @@ import type {
   ParsedTask,
   Priority,
   Project,
+  ProjectTemplateTask,
   Role,
   Task,
   TaskStatus,
@@ -28,6 +29,11 @@ const GAS_URL = process.env.NEXT_PUBLIC_GAS_URL
 // per-file sharing, the folder itself needn't be publicly listable), so
 // it's fine to inline like the other NEXT_PUBLIC_ config.
 const DRIVE_FOLDER_ID = process.env.NEXT_PUBLIC_DRIVE_FOLDER_ID
+// optional — a 4th published-CSV sheet ("Settings", key/value rows) that
+// syncs the skill/category/role-level option pools and project-type
+// templates across everyone's browser, instead of each browser keeping
+// its own localStorage-only copy (see gas/README.md).
+const SETTINGS_CSV_URL = process.env.NEXT_PUBLIC_SETTINGS_CSV
 
 export const isRemoteConfigured = !!(
   MEMBERS_CSV_URL &&
@@ -37,6 +43,7 @@ export const isRemoteConfigured = !!(
 )
 
 export const isDriveConfigured = isRemoteConfigured && !!DRIVE_FOLDER_ID
+export const isSettingsConfigured = isRemoteConfigured && !!SETTINGS_CSV_URL
 
 // ---- CSV parsing ------------------------------------------------------
 
@@ -162,6 +169,7 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
     avatarColor: r.avatar_color || colorForId(r.id),
     initials: r.avatar_initials || initialsForName(r.name),
     avatarUrl: r.avatar_url || undefined,
+    projectIds: projectIds.length > 0 ? projectIds : undefined,
     // Fact (past-performance) matching is explicitly out of scope for the
     // alpha (cold start, no history yet) — always empty.
     facts: [],
@@ -187,8 +195,7 @@ const STATUS_FROM_LABEL: Record<string, TaskStatus> = Object.fromEntries(
 )
 
 function statusFromSheet(status: string): TaskStatus {
-  // "サポート必要" (support-needed) exists in the design doc's status list
-  // but isn't one of this UI's five kanban columns — fold it into progress.
+  // any unrecognized value (blank cell, typo) falls back to 進行中
   return STATUS_FROM_LABEL[status] ?? 'progress'
 }
 
@@ -241,6 +248,35 @@ export async function fetchRemoteData(): Promise<RemoteData> {
   const members = memberRows.map((r) => mapMemberRow(r, projectsById))
   const tasks = taskRows.map(mapTaskRow)
   return { members, projects, tasks }
+}
+
+export interface RemoteSettings {
+  skillOptions: string[]
+  categoryOptions: string[]
+  roleLevels: string[]
+  projectTemplates: Record<string, ProjectTemplateTask[]>
+}
+
+// Reads the optional "Settings" sheet (key,value rows) — see
+// gas/README.md. Any missing/unparseable key just comes back empty, so
+// callers merge with their own defaults.
+export async function fetchSettings(): Promise<RemoteSettings> {
+  if (!SETTINGS_CSV_URL) throw new Error('Settings CSV URL is not configured')
+  const rows = await fetchCsvRecords(SETTINGS_CSV_URL)
+  const byKey = new Map(rows.map((r) => [r.key, r.value ?? '']))
+  let projectTemplates: Record<string, ProjectTemplateTask[]> = {}
+  try {
+    const raw = byKey.get('project_templates')
+    if (raw) projectTemplates = JSON.parse(raw)
+  } catch {
+    // malformed JSON in the sheet — fall back to empty rather than throwing
+  }
+  return {
+    skillOptions: splitTags(byKey.get('skill_options')),
+    categoryOptions: splitTags(byKey.get('category_options')),
+    roleLevels: splitTags(byKey.get('role_levels')),
+    projectTemplates,
+  }
 }
 
 // ---- writes (Google Apps Script Web App) ---------------------------------
@@ -326,6 +362,9 @@ export const remoteApi = {
   addMember: (name: string, email: string, affiliation: string, role: Role) =>
     postToGas<{ id: string }>('addMember', { name, email, affiliation, role }),
   updateEmail: (memberId: string, email: string) => postToGas('updateEmail', { memberId, email }),
+  updateSetting: (key: string, value: string) => postToGas('updateSetting', { key, value }),
+  updateMemberProjects: (memberId: string, projectIds: string[]) =>
+    postToGas('updateMemberProjects', { memberId, projectIds }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to

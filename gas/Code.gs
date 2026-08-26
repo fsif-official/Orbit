@@ -15,6 +15,10 @@
 var SHEET_MEMBERS = 'Members'
 var SHEET_PROJECTS = 'Projects'
 var SHEET_TASKS = 'Tasks'
+// optional 4th tab — key/value rows syncing the skill/category/role-level
+// option pools and project templates; see gas/README.md. Missing sheet is
+// fine, updateSetting() creates it on first write.
+var SHEET_SETTINGS = 'Settings'
 
 // A member is completing a certain number of same-category tasks and
 // auto-certifying isn't something this file does — that check runs
@@ -132,6 +136,14 @@ function doPost(e) {
         break
       case 'updateEmail':
         result = updateMemberFields(body.memberId, { email: body.email || '' })
+        break
+      case 'updateSetting':
+        result = updateSetting(body.key, body.value)
+        break
+      case 'updateMemberProjects':
+        result = updateMemberFields(body.memberId, {
+          project_ids: (body.projectIds || []).join(','),
+        })
         break
       default:
         throw new Error('Unknown action: ' + body.action)
@@ -284,7 +296,10 @@ function notifyAdmins(subject, body, preferredEmails) {
       if (!email) return
       var notify = notifyCol !== -1 && /^(true|1|yes)$/i.test(String(r[notifyCol] || ''))
       if (notify) opted.push(email)
-      else if (roleCol !== -1 && r[roleCol] === '代表') reps.push(email)
+      // any admin-level role (i.e. not blank and not "一般") counts as a
+      // fallback recipient — role names are freely renamed/added/removed
+      // from Admin > Tags, so this can't hardcode a specific role string
+      else if (roleCol !== -1 && String(r[roleCol] || '').trim() && r[roleCol] !== '一般') reps.push(email)
     })
     var recipients = opted.length > 0 ? opted : reps
     if (recipients.length === 0) return
@@ -493,9 +508,10 @@ function uploadAvatar(memberId, dataUrl, filename, folderId) {
   file.setName(namePrefix + Date.now())
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW)
 
-  // a thumbnail URL hotlinks reliably in <img> tags (unlike Drive's
-  // "uc?export=view" links, which can trigger a virus-scan interstitial)
-  var url = 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w256'
+  // googleusercontent.com hotlinks more reliably in <img> tags than
+  // Drive's own "uc?export=view" (which can trigger a virus-scan
+  // interstitial) or "thumbnail?id=" (rate-limited more aggressively) URLs
+  var url = 'https://lh3.googleusercontent.com/d/' + file.getId() + '=w256-h256-c'
   updateMemberFields(memberId, { avatar_url: url })
   return { url: url }
 }
@@ -539,11 +555,52 @@ function removeMember(memberId) {
   return { removed: memberId }
 }
 
+// ---- Settings (optional key/value sync sheet) ------------------------------
+
+// Upserts one row of the Settings sheet by key. Used for the skill/category/
+// role-level option pools and project templates (see gas/README.md) —
+// each holds its whole current value (comma list or JSON) in a single cell.
+function updateSetting(key, value) {
+  var sheet = getOrCreateSheet(SHEET_SETTINGS, ['key', 'value'])
+  var headers = headerRow(sheet)
+  var keyCol = headers.indexOf('key') + 1
+  var valueCol = headers.indexOf('value') + 1
+  if (keyCol === 0 || valueCol === 0) throw new Error('Settings sheet needs "key" and "value" columns')
+
+  var lastRow = sheet.getLastRow()
+  var keys = lastRow > 1 ? sheet.getRange(2, keyCol, lastRow - 1, 1).getValues() : []
+  for (var i = 0; i < keys.length; i++) {
+    if (String(keys[i][0]) === String(key)) {
+      sheet.getRange(i + 2, valueCol).setValue(value)
+      return { key: key }
+    }
+  }
+  var row = headers.map(function (h) {
+    if (h === 'key') return key
+    if (h === 'value') return value
+    return ''
+  })
+  sheet.appendRow(row)
+  return { key: key }
+}
+
 // ---- shared row helpers -----------------------------------------------------
 
 function getSheet(name) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name)
   if (!sheet) throw new Error('Sheet not found: ' + name)
+  return sheet
+}
+
+// Like getSheet, but creates the tab (with the given header row) instead
+// of throwing when it doesn't exist yet — used for the optional Settings
+// tab so admins don't have to pre-create it before the first sync.
+function getOrCreateSheet(name, headers) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet()
+  var sheet = ss.getSheetByName(name)
+  if (sheet) return sheet
+  sheet = ss.insertSheet(name)
+  sheet.appendRow(headers)
   return sheet
 }
 

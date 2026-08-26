@@ -11,14 +11,15 @@ import { Plus, Trash2 } from 'lucide-react'
 
 export function AdminProjects() {
   const {
-    projects,
-    visibleTasks,
+    adminProjects: projects,
+    adminTasks: visibleTasks,
     members,
     addProject,
     projectTypes,
     projectTemplates,
     setProjectTemplateTasks,
     removeProjectType,
+    isFullAdmin,
   } = useOrbit()
   const toast = useToast()
   const [name, setName] = useState('')
@@ -52,52 +53,56 @@ export function AdminProjects() {
     <div className="mx-auto max-w-5xl px-6 py-8">
       <h1 className="text-xl font-semibold tracking-tight">Projects</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        新しいプロジェクトを追加します。種類を選ぶと、その種類のテンプレートタスクが自動で作成されます。
+        {isFullAdmin
+          ? '新しいプロジェクトを追加します。種類を選ぶと、その種類のテンプレートタスクが自動で作成されます。'
+          : '担当プロジェクトの一覧です。新規追加やテンプレート管理は代表など上位の管理者のみ行えます。'}
       </p>
 
-      <div className="mt-6 rounded-lg border border-border bg-card p-4">
-        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr]">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              プロジェクト名
-            </label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="例：新歓イベント2027"
-              className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
-            />
+      {isFullAdmin && (
+        <div className="mt-6 rounded-lg border border-border bg-card p-4">
+          <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr]">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                プロジェクト名
+              </label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="例：新歓イベント2027"
+                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">概要</label>
+              <input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="任意"
+                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">種類</label>
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="h-9 w-full cursor-pointer rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+              >
+                <option value="">未設定</option>
+                {projectTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">概要</label>
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="任意"
-              className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">種類</label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="h-9 w-full cursor-pointer rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
-            >
-              <option value="">未設定</option>
-              {projectTypes.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Button className="mt-3 h-9" disabled={!name.trim()} onClick={handleCreate}>
+            <Plus className="size-4" />
+            プロジェクトを追加
+          </Button>
         </div>
-        <Button className="mt-3 h-9" disabled={!name.trim()} onClick={handleCreate}>
-          <Plus className="size-4" />
-          プロジェクトを追加
-        </Button>
-      </div>
+      )}
 
       <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card">
         <table className="w-full text-sm">
@@ -144,6 +149,7 @@ export function AdminProjects() {
       </div>
 
       {/* Project-type templates */}
+      {isFullAdmin && (
       <div className="mt-10">
         <h2 className="text-base font-semibold">プロジェクトの種類 / テンプレートタスク</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -193,6 +199,7 @@ export function AdminProjects() {
           )}
         </div>
       </div>
+      )}
     </div>
   )
 }

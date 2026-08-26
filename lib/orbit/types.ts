@@ -1,4 +1,4 @@
-export type TaskStatus = 'todo' | 'progress' | 'review' | 'fix' | 'done'
+export type TaskStatus = 'todo' | 'progress' | 'support' | 'review' | 'fix' | 'done'
 
 export type Difficulty = '新人歓迎' | '少し経験必要' | '経験者向け'
 
@@ -80,6 +80,11 @@ export interface Member {
   // should be routed to (e.g. a 班長's 事業部長/代表) — falls back to the
   // default 代表 recipients when unset, see store.tsx's notifyTargetsFor
   reportsToId?: string
+  // projects this member is scoped to manage as an admin (design doc §3).
+  // Only meaningful for a non-top admin role — see store.tsx's isFullAdmin.
+  // A 代表-equivalent (the highest-ranked role level) always sees/manages
+  // everything regardless of this list.
+  projectIds?: string[]
 }
 
 export interface Project {
@@ -160,6 +165,7 @@ export interface ParsedTask {
 export const STATUS_ORDER: TaskStatus[] = [
   'todo',
   'progress',
+  'support',
   'review',
   'fix',
   'done',
@@ -168,6 +174,7 @@ export const STATUS_ORDER: TaskStatus[] = [
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   todo: '未着手',
   progress: '進行中',
+  support: 'サポート必要',
   review: '確認待ち',
   fix: '修正中',
   done: '完了',
@@ -176,6 +183,7 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
 export const STATUS_COLOR: Record<TaskStatus, string> = {
   todo: 'var(--status-todo)',
   progress: 'var(--status-progress)',
+  support: 'var(--status-support)',
   review: 'var(--status-review)',
   fix: 'var(--status-fix)',
   done: 'var(--status-done)',

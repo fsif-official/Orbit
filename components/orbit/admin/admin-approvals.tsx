@@ -8,7 +8,8 @@ import { findSimilarTasks, formatDeadline } from '@/lib/orbit/utils'
 import { Check, FileClock, TriangleAlert } from 'lucide-react'
 
 export function AdminApprovals() {
-  const { pendingTasks, visibleTasks, getProject, getMember, approveTask } = useOrbit()
+  const { adminPendingTasks: pendingTasks, adminTasks: visibleTasks, getProject, getMember, approveTask } =
+    useOrbit()
   const toast = useToast()
 
   return (

@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { useNav } from '@/lib/orbit/nav'
 import { AdminDashboard } from './admin-dashboard'
 import { AdminAssignments } from './admin-assignments'
@@ -12,6 +13,11 @@ import { LayoutDashboard, UserPlus, FileClock, FolderPlus, Users, Tags } from 'l
 
 type Section = 'dashboard' | 'assignments' | 'approvals' | 'projects' | 'members' | 'tags'
 
+// Members/Tags manage org-wide config (roles, notification routing, the
+// shared skill/category/role-level pools) — not "this project's" scope,
+// so a project-scoped admin (see store.tsx's isFullAdmin) doesn't get them.
+const FULL_ADMIN_ONLY: Section[] = ['members', 'tags']
+
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="size-4" /> },
   { key: 'approvals', label: 'Approvals', icon: <FileClock className="size-4" /> },
@@ -23,7 +29,18 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
 
 export function AdminScreen({ section }: { section: Section }) {
   const { go } = useNav()
-  const { pendingTasks } = useOrbit()
+  const { pendingTasks, isFullAdmin } = useOrbit()
+  const nav = isFullAdmin ? NAV : NAV.filter((n) => !FULL_ADMIN_ONLY.includes(n.key))
+
+  // a scoped admin landing on members/tags (stale link, direct nav) bounces
+  // to the dashboard instead of rendering an org-wide config screen
+  useEffect(() => {
+    if (!isFullAdmin && FULL_ADMIN_ONLY.includes(section)) {
+      go({ name: 'admin', section: 'dashboard' })
+    }
+  }, [isFullAdmin, section, go])
+
+  if (!isFullAdmin && FULL_ADMIN_ONLY.includes(section)) return null
 
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)]">
@@ -35,7 +52,7 @@ export function AdminScreen({ section }: { section: Section }) {
           </div>
         </div>
         <nav className="space-y-0.5 px-2">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <button
               key={n.key}
               onClick={() => go({ name: 'admin', section: n.key })}
@@ -60,7 +77,7 @@ export function AdminScreen({ section }: { section: Section }) {
       {/* Mobile tabs */}
       <div className="w-full">
         <div className="flex gap-1 overflow-x-auto border-b border-border bg-card px-4 py-2 md:hidden">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <button
               key={n.key}
               onClick={() => go({ name: 'admin', section: n.key })}

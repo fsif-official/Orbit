@@ -5,13 +5,14 @@ import { useTaskDrawer } from '@/lib/orbit/task-drawer'
 import { Avatar, ProjectTag } from '@/components/orbit/primitives'
 import { isOverdue, daysSince, formatDeadline } from '@/lib/orbit/utils'
 import { STATUS_LABEL } from '@/lib/orbit/types'
-import { CircleAlert, Clock, UserX, Activity, FileClock } from 'lucide-react'
+import { CircleAlert, Clock, UserX, Activity, FileClock, LifeBuoy } from 'lucide-react'
 
 export function AdminDashboard() {
-  const { visibleTasks: tasks, pendingTasks, getProject } = useOrbit()
+  const { adminTasks: tasks, adminPendingTasks: pendingTasks, isFullAdmin, getProject } = useOrbit()
   const { openTask } = useTaskDrawer()
 
   const inProgress = tasks.filter((t) => t.status === 'progress')
+  const needsSupport = tasks.filter((t) => t.status === 'support')
   const waiting = tasks.filter((t) => t.status === 'review')
   const overdue = tasks.filter((t) => isOverdue(t))
   const unassigned = tasks.filter((t) => t.assigneeIds.length === 0 && t.status !== 'done')
@@ -24,6 +25,7 @@ export function AdminDashboard() {
     { label: '全タスク', value: tasks.length, tone: 'neutral' as const },
     { label: '承認待ち', value: pendingTasks.length, tone: 'accent' as const },
     { label: '進行中', value: inProgress.length, tone: 'neutral' as const },
+    { label: 'サポート必要', value: needsSupport.length, tone: 'warn' as const },
     { label: '確認待ち', value: waiting.length, tone: 'warn' as const },
     { label: '期限超過', value: overdue.length, tone: 'danger' as const },
     { label: '未アサイン', value: unassigned.length, tone: 'accent' as const },
@@ -39,7 +41,11 @@ export function AdminDashboard() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
-      <p className="mt-1 text-sm text-muted-foreground">組織全体のタスク状況と、対応が必要な項目です。</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {isFullAdmin
+          ? '組織全体のタスク状況と、対応が必要な項目です。'
+          : '担当プロジェクトのタスク状況と、対応が必要な項目です。'}
+      </p>
 
       {/* Metric cards */}
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
@@ -61,6 +67,14 @@ export function AdminDashboard() {
             title="承認待ち"
             icon={<FileClock className="size-4 text-primary" />}
             tasks={pendingTasks}
+            renderMeta={(t) => getProject(t.projectId)?.name ?? ''}
+            onOpen={openTask}
+            getProject={getProject}
+          />
+          <AttentionGroup
+            title="サポート必要"
+            icon={<LifeBuoy className="size-4 text-[var(--status-support)]" />}
+            tasks={needsSupport}
             renderMeta={(t) => getProject(t.projectId)?.name ?? ''}
             onOpen={openTask}
             getProject={getProject}

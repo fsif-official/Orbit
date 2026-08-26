@@ -7,7 +7,7 @@ import { useToast } from '@/components/orbit/toast'
 import { Avatar, Tag } from '@/components/orbit/primitives'
 import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
-import { Search, Bell, UserMinus, UserPlus } from 'lucide-react'
+import { Search, Bell, UserMinus, UserPlus, FolderKanban, Check } from 'lucide-react'
 import { BASE_ROLE } from '@/lib/orbit/types'
 import type { Member, Role } from '@/lib/orbit/types'
 
@@ -20,19 +20,24 @@ function workload(count: number): { label: string; className: string } {
 export function AdminMembers() {
   const {
     members,
+    projects,
     visibleTasks: tasks,
     updateNotify,
     removeMember,
     updateRole,
     updateReportsTo,
+    updateMemberProjects,
     roleLevels,
     addMember,
+    isFullAdmin,
   } = useOrbit()
   const { go } = useNav()
   const toast = useToast()
   const [query, setQuery] = useState('')
   const [removing, setRemoving] = useState<Member | null>(null)
+  const [assigningProjects, setAssigningProjects] = useState<Member | null>(null)
   const ROLES: Role[] = [BASE_ROLE, ...roleLevels]
+  const isTopRole = (role: Role) => roleLevels.length === 0 || role === roleLevels[roleLevels.length - 1]
 
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
@@ -130,6 +135,7 @@ export function AdminMembers() {
                 <th className="px-4 py-3 font-medium">Member</th>
                 <th className="px-4 py-3 font-medium">役職</th>
                 <th className="px-4 py-3 font-medium">報告先</th>
+                {isFullAdmin && <th className="px-4 py-3 font-medium">担当プロジェクト</th>}
                 <th className="px-4 py-3 font-medium">Active</th>
                 <th className="px-4 py-3 font-medium">Will</th>
                 <th className="px-4 py-3 font-medium">Judgment</th>
@@ -182,6 +188,23 @@ export function AdminMembers() {
                           ))}
                       </select>
                     </td>
+                    {isFullAdmin && (
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        {m.role !== BASE_ROLE && !isTopRole(m.role) ? (
+                          <button
+                            onClick={() => setAssigningProjects(m)}
+                            className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary"
+                          >
+                            <FolderKanban className="size-3.5" />
+                            {(m.projectIds ?? []).length}件
+                          </button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            {m.role === BASE_ROLE ? '—' : '全て'}
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <span className="font-mono tabular-nums">{count}</span>
                     </td>
@@ -227,7 +250,10 @@ export function AdminMembers() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <td
+                    colSpan={isFullAdmin ? 10 : 9}
+                    className="px-4 py-10 text-center text-sm text-muted-foreground"
+                  >
                     条件に一致するメンバーがいません。
                   </td>
                 </tr>
@@ -258,6 +284,46 @@ export function AdminMembers() {
             }}
           >
             退会させる
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal open={!!assigningProjects} onClose={() => setAssigningProjects(null)}>
+        <h2 className="text-base font-semibold">
+          {assigningProjects?.displayName || assigningProjects?.name} の担当プロジェクト
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          選んだプロジェクトのタスクだけがAdmin画面に表示されるようになります。
+        </p>
+        <div className="mt-3 flex max-h-80 flex-col gap-1 overflow-auto orbit-scroll">
+          {projects.map((p) => {
+            const checked = !!assigningProjects?.projectIds?.includes(p.id)
+            return (
+              <button
+                key={p.id}
+                onClick={() => {
+                  if (!assigningProjects) return
+                  const cur = assigningProjects.projectIds ?? []
+                  const next = checked ? cur.filter((id) => id !== p.id) : [...cur, p.id]
+                  updateMemberProjects(assigningProjects.id, next)
+                  setAssigningProjects({ ...assigningProjects, projectIds: next })
+                }}
+                className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-secondary ${
+                  checked ? 'bg-primary-muted' : ''
+                }`}
+              >
+                {p.name}
+                {checked && <Check className="size-4 shrink-0 text-primary" strokeWidth={3} />}
+              </button>
+            )
+          })}
+          {projects.length === 0 && (
+            <p className="px-3 py-2 text-sm text-muted-foreground">プロジェクトがありません。</p>
+          )}
+        </div>
+        <div className="mt-5 flex justify-end">
+          <Button className="h-9" onClick={() => setAssigningProjects(null)}>
+            閉じる
           </Button>
         </div>
       </Modal>
