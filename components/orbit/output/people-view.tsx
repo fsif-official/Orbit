@@ -11,7 +11,7 @@ export function PeopleView() {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {members.map((m) => {
-        const mine = tasks.filter((t) => t.assigneeId === m.id)
+        const mine = tasks.filter((t) => t.assigneeIds.includes(m.id))
         const inProgress = mine.filter((t) => t.status === 'progress').length
         const waiting = mine.filter((t) => t.status === 'review').length
         const done = mine.filter((t) => t.status === 'done').length

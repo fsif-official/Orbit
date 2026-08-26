@@ -68,11 +68,11 @@ export function matchSkills(task: { skills: string[] }, member: Member): string[
 }
 
 export function rankCandidates(
-  task: { skills: string[]; assigneeId?: string | null },
+  task: { skills: string[]; assigneeIds?: string[] },
   members: Member[],
 ): { member: Member; matches: string[] }[] {
   return members
-    .filter((m) => m.id !== task.assigneeId)
+    .filter((m) => !task.assigneeIds?.includes(m.id))
     .map((m) => ({ member: m, matches: matchSkills(task, m) }))
     .filter((c) => c.matches.length > 0)
     .sort((a, b) => b.matches.length - a.matches.length)

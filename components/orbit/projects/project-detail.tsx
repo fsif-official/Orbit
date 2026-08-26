@@ -33,7 +33,7 @@ export function ProjectDetail({ id }: { id: string }) {
   const waiting = pt.filter((t) => t.status === 'review').length
   const overdue = pt.filter((t) => isOverdue(t)).length
   const completion = pt.length ? Math.round((done / pt.length) * 100) : 0
-  const memberIds = Array.from(new Set(pt.map((t) => t.assigneeId).filter(Boolean))) as string[]
+  const memberIds = Array.from(new Set(pt.flatMap((t) => t.assigneeIds)))
   const projMembers = memberIds.map((mid) => members.find((m) => m.id === mid)).filter(Boolean)
 
   return (
@@ -113,7 +113,7 @@ export function ProjectDetail({ id }: { id: string }) {
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {projMembers.map((m) => {
                   if (!m) return null
-                  const count = pt.filter((t) => t.assigneeId === m.id).length
+                  const count = pt.filter((t) => t.assigneeIds.includes(m.id)).length
                   return (
                     <button
                       key={m.id}

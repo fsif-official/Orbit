@@ -388,6 +388,7 @@ function parseText(text: string): ParsedTask[] {
       skills,
       difficulty: '新人歓迎' as const,
       priority,
+      assigneeIds: [],
       approved: true,
     }
   })

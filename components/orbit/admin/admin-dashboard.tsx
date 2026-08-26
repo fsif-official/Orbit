@@ -19,7 +19,7 @@ export function AdminDashboard() {
   const inProgress = tasks.filter((t) => t.status === 'progress')
   const waiting = tasks.filter((t) => t.status === 'review')
   const overdue = tasks.filter((t) => isOverdue(t))
-  const unassigned = tasks.filter((t) => !t.assigneeId && t.status !== 'done')
+  const unassigned = tasks.filter((t) => t.assigneeIds.length === 0 && t.status !== 'done')
   const stale = tasks.filter((t) => {
     const d = daysSince(t.lastActivity)
     return t.status !== 'done' && d !== null && d >= 5

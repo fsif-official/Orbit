@@ -28,7 +28,7 @@ export function PersonDetail({ id }: { id: string }) {
     )
   }
 
-  const mine = tasks.filter((t) => t.assigneeId === member.id)
+  const mine = tasks.filter((t) => t.assigneeIds.includes(member.id))
   const active = mine.filter((t) => t.status !== 'done').length
   const history = mine
     .slice()

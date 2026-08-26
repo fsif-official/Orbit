@@ -30,7 +30,7 @@ interface NavValue {
 const NavContext = createContext<NavValue | null>(null)
 
 export function NavProvider({ children }: { children: React.ReactNode }) {
-  const [screen, setScreen] = useState<Screen>({ name: 'input' })
+  const [screen, setScreen] = useState<Screen>({ name: 'output' })
   const go = useCallback((s: Screen) => {
     setScreen(s)
     if (typeof window !== 'undefined') window.scrollTo({ top: 0 })

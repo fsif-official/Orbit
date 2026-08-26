@@ -167,7 +167,7 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
 }
 
 function mapProjectRow(r: Record<string, string>): Project {
-  return { id: r.id, name: r.name, description: r.description ?? '' }
+  return { id: r.id, name: r.name, description: r.description ?? '', type: r.type || undefined }
 }
 
 const STATUS_FROM_LABEL: Record<string, TaskStatus> = Object.fromEntries(
@@ -187,8 +187,9 @@ function mapTaskRow(r: Record<string, string>): Task {
     description: r.description ?? '',
     projectId: r.project_id,
     department: (r.department || '未分類') as Department,
-    assigneeId: r.assignee_id || null,
+    assigneeIds: splitTags(r.assignee_id),
     deadline: r.due_date || null,
+    dueTime: r.due_time || null,
     category: r.category || '',
     skills: splitTags(r.skills),
     difficulty: (r.difficulty || '新人歓迎') as Difficulty,
@@ -240,6 +241,8 @@ export interface CreateTaskPayload {
   difficulty: Difficulty
   priority: Priority
   deadline: string | null
+  dueTime?: string | null
+  assigneeIds?: string[]
   creatorId?: string
   originalInputId?: string
   pendingApproval?: boolean
@@ -264,18 +267,20 @@ export const remoteApi = {
     postToGas<{ tempId: string; id: string }[]>('createTasks', { tasks }),
   updateTaskStatus: (taskId: string, status: TaskStatus) =>
     postToGas('updateTaskStatus', { taskId, status: STATUS_LABEL[status] }),
-  assignTask: (taskId: string, assigneeId: string | null) =>
-    postToGas('assignTask', { taskId, assigneeId }),
+  assignTask: (taskId: string, assigneeIds: string[]) =>
+    postToGas('assignTask', { taskId, assigneeIds }),
   updatePriority: (taskId: string, priority: Priority) =>
     postToGas('updatePriority', { taskId, priority }),
+  updateDifficulty: (taskId: string, difficulty: Difficulty) =>
+    postToGas('updateDifficulty', { taskId, difficulty }),
   updateProgress: (taskId: string, text: string) =>
     postToGas('updateProgress', { taskId, text }),
   updateWill: (memberId: string, will: string[]) => postToGas('updateWill', { memberId, will }),
   updateJudgment: (memberId: string, judgment: string[]) =>
     postToGas('updateJudgment', { memberId, judgment }),
   approveTask: (taskId: string) => postToGas('approveTask', { taskId }),
-  createProject: (name: string, description: string) =>
-    postToGas<{ id: string }>('createProject', { name, description }),
+  createProject: (name: string, description: string, type?: string) =>
+    postToGas<{ id: string }>('createProject', { name, description, type }),
   removeMember: (memberId: string) => postToGas('removeMember', { memberId }),
   updateNotify: (memberId: string, notify: boolean) =>
     postToGas('updateNotify', { memberId, notify }),
@@ -294,6 +299,8 @@ export function toCreatePayload(tempId: string, p: ParsedTask, creatorId?: strin
     difficulty: p.difficulty,
     priority: p.priority,
     deadline: p.deadline,
+    dueTime: p.dueTime,
+    assigneeIds: p.assigneeIds,
     creatorId,
     originalInputId,
     pendingApproval: true,

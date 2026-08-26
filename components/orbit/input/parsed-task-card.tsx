@@ -7,7 +7,7 @@ import { useOrbit } from '@/lib/orbit/store'
 import { Card, DifficultyBadge, Tag, Avatar } from '../primitives'
 import { cn } from '@/lib/utils'
 import { rankCandidates } from '@/lib/orbit/utils'
-import { Check, Plus, Sparkles, X } from 'lucide-react'
+import { Check, Plus, Sparkles } from 'lucide-react'
 
 export function ParsedTaskCard({
   task,
@@ -24,6 +24,16 @@ export function ParsedTaskCard({
   const [addingCategory, setAddingCategory] = useState(false)
   const [categoryDraft, setCategoryDraft] = useState('')
   const candidates = rankCandidates(task, members).slice(0, 3)
+  const assignees = task.assigneeIds
+    .map((id) => members.find((m) => m.id === id))
+    .filter(Boolean) as typeof members
+  const assignableMembers = members.filter((m) => !task.assigneeIds.includes(m.id))
+
+  const addAssignee = (memberId: string) => {
+    if (!task.assigneeIds.includes(memberId)) set('assigneeIds', [...task.assigneeIds, memberId])
+  }
+  const removeAssignee = (memberId: string) =>
+    set('assigneeIds', task.assigneeIds.filter((id) => id !== memberId))
 
   const set = <K extends keyof ParsedTask>(key: K, value: ParsedTask[K]) =>
     onChange({ ...task, [key]: value })
@@ -95,12 +105,22 @@ export function ParsedTaskCard({
         </Field>
 
         <Field label="期限">
-          <input
-            type="date"
-            value={task.deadline ?? ''}
-            onChange={(e) => set('deadline', e.target.value || null)}
-            className="w-full rounded-md border border-transparent bg-transparent py-0.5 text-sm outline-none hover:border-border focus:border-border-strong"
-          />
+          <div className="flex items-center gap-1">
+            <input
+              type="date"
+              value={task.deadline ?? ''}
+              onChange={(e) => set('deadline', e.target.value || null)}
+              className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent py-0.5 text-sm outline-none hover:border-border focus:border-border-strong"
+            />
+            <input
+              type="time"
+              value={task.dueTime ?? ''}
+              onChange={(e) => set('dueTime', e.target.value || null)}
+              disabled={!task.deadline}
+              title="時刻（任意）"
+              className="w-[92px] shrink-0 rounded-md border border-transparent bg-transparent py-0.5 text-sm outline-none hover:border-border focus:border-border-strong disabled:opacity-40"
+            />
+          </div>
         </Field>
 
         <Field label="カテゴリ">
@@ -225,26 +245,58 @@ export function ParsedTaskCard({
           </div>
         </Field>
 
-        {candidates.length > 0 && (
-          <Field label="おすすめ担当" className="col-span-2 sm:col-span-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Sparkles className="size-3.5 shrink-0 text-primary" />
+        <Field label="担当者" className="col-span-2 sm:col-span-4">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {assignees.map((m) => (
+              <Tag key={m.id} onRemove={() => removeAssignee(m.id)}>
+                <Avatar member={m} size={16} />
+                {m.name}
+              </Tag>
+            ))}
+            {assignableMembers.length > 0 && (
+              <select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) addAssignee(e.target.value)
+                }}
+                className="cursor-pointer rounded-md border border-dashed border-border-strong bg-transparent px-1.5 py-0.5 text-[11px] text-muted-foreground outline-none hover:border-border"
+                aria-label="担当者を選択して追加"
+              >
+                <option value="">選択して追加</option>
+                {assignableMembers.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {candidates.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Sparkles className="size-3.5 shrink-0 text-primary" />
+                おすすめ:
+              </span>
               {candidates.map(({ member, matches }) => (
-                <span
+                <button
                   key={member.id}
+                  type="button"
                   title={`一致: ${matches.join('、')}`}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/5 px-1.5 py-0.5 text-xs font-medium text-foreground"
+                  onClick={() => addAssignee(member.id)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/5 px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-primary/10"
                 >
                   <Avatar member={member} size={18} />
                   {member.name}
                   <span className="text-[10px] font-normal text-muted-foreground">
                     {matches.length}件一致
                   </span>
-                </span>
+                  <Plus className="size-3 text-primary" />
+                </button>
               ))}
             </div>
-          </Field>
-        )}
+          )}
+        </Field>
       </div>
     </Card>
   )

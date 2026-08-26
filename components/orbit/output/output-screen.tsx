@@ -11,14 +11,14 @@ import { ProjectView } from './project-view'
 import { DifficultyBoard } from './difficulty-board'
 import { TaskDetailDrawer } from './task-detail-drawer'
 import { cn } from '@/lib/utils'
-import { Columns3, LayoutList, CalendarDays, GaugeCircle, Inbox } from 'lucide-react'
+import { Columns3, LayoutList, CalendarDays, GaugeCircle, Inbox, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-type Target = 'all' | 'people' | 'projects'
+type Target = 'all' | 'people' | 'projects' | 'archive'
 type View = 'workflow' | 'list' | 'calendar' | 'difficulty'
 
 export function OutputScreen() {
-  const { visibleTasks } = useOrbit()
+  const { visibleTasks, archivedTasks } = useOrbit()
   const { go } = useNav()
   const [target, setTarget] = useState<Target>('all')
   const [view, setView] = useState<View>('workflow')
@@ -54,6 +54,15 @@ export function OutputScreen() {
             <Seg active={target === 'projects'} onClick={() => setTarget('projects')}>
               プロジェクト
             </Seg>
+            <Seg active={target === 'archive'} onClick={() => setTarget('archive')}>
+              <Archive className="size-3.5" />
+              アーカイブ
+              {archivedTasks.length > 0 && (
+                <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums">
+                  {archivedTasks.length}
+                </span>
+              )}
+            </Seg>
           </Segment>
 
           <Segment label="表示">
@@ -77,7 +86,19 @@ export function OutputScreen() {
         </div>
       </div>
 
-      {visibleTasks.length === 0 ? (
+      {target === 'archive' ? (
+        archivedTasks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-20 text-center">
+            <Archive className="mx-auto size-6 text-muted-foreground" />
+            <p className="mt-3 text-sm font-medium">アーカイブされたタスクはありません</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              完了から14日以上経過したタスクが自動でここに移動します。
+            </p>
+          </div>
+        ) : (
+          <ListView tasks={archivedTasks} onOpenTask={setOpenTaskId} />
+        )
+      ) : visibleTasks.length === 0 ? (
         <EmptyState onInput={() => go({ name: 'input' })} />
       ) : (
         <>

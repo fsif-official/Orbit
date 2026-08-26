@@ -11,7 +11,7 @@ import type { Task, Member } from '@/lib/orbit/types'
 
 export function AdminAssignments() {
   const { visibleTasks: tasks, members, getProject, assignTask } = useOrbit()
-  const unassigned = tasks.filter((t) => !t.assigneeId && t.status !== 'done')
+  const unassigned = tasks.filter((t) => t.assigneeIds.length === 0 && t.status !== 'done')
   const [selectedId, setSelectedId] = useState<string | null>(unassigned[0]?.id ?? null)
 
   const selected = tasks.find((t) => t.id === selectedId) ?? null
@@ -71,7 +71,7 @@ function MatchPanel({
 }: {
   task: Task
   members: Member[]
-  assignTask: (id: string, memberId: string | null) => void
+  assignTask: (id: string, memberIds: string[]) => void
   projectName: string
 }) {
   const toast = useToast()
@@ -81,7 +81,7 @@ function MatchPanel({
   const [showOthers, setShowOthers] = useState(false)
 
   function handleAssign(m: Member) {
-    assignTask(task.id, m.id)
+    assignTask(task.id, [...task.assigneeIds, m.id])
     toast(`${m.name} をアサインしました`)
   }
 
