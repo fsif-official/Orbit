@@ -104,6 +104,15 @@ export function ParsedTaskCard({
           </select>
         </Field>
 
+        <Field label="開始日">
+          <input
+            type="date"
+            value={task.startDate ?? ''}
+            onChange={(e) => set('startDate', e.target.value || null)}
+            className="w-full rounded-md border border-transparent bg-transparent py-0.5 text-sm outline-none hover:border-border focus:border-border-strong"
+          />
+        </Field>
+
         <Field label="期限">
           <div className="flex items-center gap-1">
             <input
@@ -185,6 +194,17 @@ export function ParsedTaskCard({
           </select>
         </Field>
 
+        <Field label="公開範囲">
+          <select
+            value={task.visibility ?? 'all'}
+            onChange={(e) => set('visibility', e.target.value as ParsedTask['visibility'])}
+            className="w-full cursor-pointer rounded-md border border-transparent bg-transparent py-0.5 text-sm outline-none hover:border-border focus:border-border-strong"
+          >
+            <option value="all">全員</option>
+            <option value="幹部">幹部限定</option>
+          </select>
+        </Field>
+
         <Field label="必要スキル" className="col-span-2 sm:col-span-4">
           <div className="flex flex-wrap items-center gap-1.5">
             {task.skills.map((s) => (
@@ -250,7 +270,7 @@ export function ParsedTaskCard({
             {assignees.map((m) => (
               <Tag key={m.id} onRemove={() => removeAssignee(m.id)}>
                 <Avatar member={m} size={16} />
-                {m.name}
+                {m.displayName || m.name}
               </Tag>
             ))}
             {assignableMembers.length > 0 && (
@@ -265,7 +285,7 @@ export function ParsedTaskCard({
                 <option value="">選択して追加</option>
                 {assignableMembers.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name}
+                    {m.displayName || m.name}
                   </option>
                 ))}
               </select>
@@ -287,7 +307,7 @@ export function ParsedTaskCard({
                   className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/5 px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-primary/10"
                 >
                   <Avatar member={member} size={18} />
-                  {member.name}
+                  {member.displayName || member.name}
                   <span className="text-[10px] font-normal text-muted-foreground">
                     {matches.length}件一致
                   </span>

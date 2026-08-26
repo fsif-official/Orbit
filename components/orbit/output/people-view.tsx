@@ -24,9 +24,11 @@ export function PeopleView() {
             <div className="flex items-center gap-3">
               <Avatar member={m} size={44} />
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-foreground">{m.name}</p>
+                <p className="truncate text-sm font-semibold text-foreground">
+                  {m.displayName || m.name}
+                </p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {m.role === 'admin' ? '管理者' : m.affiliation}
+                  {m.role === '代表' || m.role === '班長' ? m.role : m.affiliation}
                 </p>
               </div>
             </div>

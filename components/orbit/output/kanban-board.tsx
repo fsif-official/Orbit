@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { Task, TaskStatus } from '@/lib/orbit/types'
-import { STATUS_COLOR, STATUS_LABEL, STATUS_ORDER } from '@/lib/orbit/types'
+import { STATUS_COLOR, STATUS_LABEL, STATUS_ORDER, isAdminRole } from '@/lib/orbit/types'
 import { useOrbit } from '@/lib/orbit/store'
 import { useToast } from '../toast'
 import { KanbanCard } from './kanban-card'
@@ -23,7 +23,7 @@ export function KanbanBoard({
   const handleDrop = (status: TaskStatus) => {
     if (draggingId) {
       // only an admin can move a card straight to 完了 — see task-detail-drawer
-      if (status === 'done' && currentUser?.role !== 'admin') {
+      if (status === 'done' && !(currentUser && isAdminRole(currentUser.role))) {
         toast('「完了」への変更は管理者のみ行えます。「確認待ち」にしてください。')
       } else {
         updateTaskStatus(draggingId, status)

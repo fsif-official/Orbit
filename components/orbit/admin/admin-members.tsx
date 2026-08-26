@@ -8,7 +8,9 @@ import { Avatar, Tag } from '@/components/orbit/primitives'
 import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
 import { Search, Bell, UserMinus } from 'lucide-react'
-import type { Member } from '@/lib/orbit/types'
+import type { Member, Role } from '@/lib/orbit/types'
+
+const ROLES: Role[] = ['一般', '班長', '代表']
 
 function workload(count: number): { label: string; className: string } {
   if (count <= 2) return { label: '稼働少なめ', className: 'text-muted-foreground' }
@@ -17,7 +19,8 @@ function workload(count: number): { label: string; className: string } {
 }
 
 export function AdminMembers() {
-  const { members, visibleTasks: tasks, updateNotify, removeMember } = useOrbit()
+  const { members, visibleTasks: tasks, updateNotify, removeMember, updateRole, updateReportsTo } =
+    useOrbit()
   const { go } = useNav()
   const toast = useToast()
   const [query, setQuery] = useState('')
@@ -30,7 +33,7 @@ export function AdminMembers() {
     const q = query.trim().toLowerCase()
     if (!q) return members
     return members.filter((m) =>
-      [m.name, m.affiliation, ...m.will, ...m.judgment, ...m.skills].some((v) =>
+      [m.name, m.displayName ?? '', m.affiliation, ...m.will, ...m.judgment, ...m.skills].some((v) =>
         v.toLowerCase().includes(q),
       ),
     )
@@ -59,6 +62,8 @@ export function AdminMembers() {
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Member</th>
+                <th className="px-4 py-3 font-medium">役職</th>
+                <th className="px-4 py-3 font-medium">報告先</th>
                 <th className="px-4 py-3 font-medium">Active</th>
                 <th className="px-4 py-3 font-medium">Will</th>
                 <th className="px-4 py-3 font-medium">Judgment</th>
@@ -77,12 +82,39 @@ export function AdminMembers() {
                       <div className="flex items-center gap-2.5">
                         <Avatar member={m} size={30} />
                         <div>
-                          <div className="font-medium">{m.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {m.role === 'admin' ? '管理者' : m.affiliation}
-                          </div>
+                          <div className="font-medium">{m.displayName || m.name}</div>
+                          <div className="text-xs text-muted-foreground">{m.affiliation}</div>
                         </div>
                       </div>
+                    </td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={m.role}
+                        onChange={(e) => updateRole(m.id, e.target.value as Role)}
+                        className="h-8 cursor-pointer rounded-md border border-border bg-background px-1.5 text-xs outline-none focus:border-primary"
+                      >
+                        {ROLES.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={m.reportsToId ?? ''}
+                        onChange={(e) => updateReportsTo(m.id, e.target.value || null)}
+                        className="h-8 w-32 cursor-pointer rounded-md border border-border bg-background px-1.5 text-xs outline-none focus:border-primary"
+                      >
+                        <option value="">（デフォルト：代表）</option>
+                        {members
+                          .filter((cand) => cand.id !== m.id && cand.role !== '一般')
+                          .map((cand) => (
+                            <option key={cand.id} value={cand.id}>
+                              {cand.displayName || cand.name}
+                            </option>
+                          ))}
+                      </select>
                     </td>
                     <td className="px-4 py-3">
                       <span className="font-mono tabular-nums">{count}</span>
@@ -129,7 +161,7 @@ export function AdminMembers() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     条件に一致するメンバーがいません。
                   </td>
                 </tr>

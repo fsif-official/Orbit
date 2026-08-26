@@ -82,7 +82,7 @@ export function KanbanCard({
                 ))}
               </div>
               <span className="truncate text-xs text-muted-foreground">
-                {assignees.map((m) => m.name).join('、')}
+                {assignees.map((m) => m.displayName || m.name).join('、')}
               </span>
             </div>
           ) : (

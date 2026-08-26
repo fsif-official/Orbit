@@ -46,7 +46,7 @@ export function Avatar({
         fontSize: size * 0.36,
         backgroundColor: member.avatarColor,
       }}
-      title={member.name}
+      title={member.displayName || member.name}
     >
       {member.initials}
     </span>

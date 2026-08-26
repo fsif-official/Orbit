@@ -85,6 +85,37 @@ function doPost(e) {
           notify_new_task: body.notify ? 'TRUE' : 'FALSE',
         })
         break
+      case 'updateRole':
+        result = updateMemberFields(body.memberId, { role: body.role })
+        break
+      case 'updateReportsTo':
+        result = updateMemberFields(body.memberId, { reports_to_id: body.reportsToId || '' })
+        break
+      case 'updateDisplayName':
+        result = updateMemberFields(body.memberId, { display_name: body.displayName || '' })
+        break
+      case 'updateUnavailableDates':
+        result = updateMemberFields(body.memberId, {
+          unavailable_dates: (body.dates || []).join(','),
+        })
+        break
+      case 'updateSchedule':
+        result = updateTaskFields(body.taskId, {
+          start_date: body.startDate || '',
+          due_date: body.deadline || '',
+        })
+        notifyScheduleChange(body.taskId)
+        break
+      case 'updateDependsOn':
+        result = updateTaskFields(body.taskId, {
+          depends_on_ids: (body.dependsOnIds || []).join(','),
+        })
+        break
+      case 'updateVisibility':
+        result = updateTaskFields(body.taskId, {
+          visibility: body.visibility === '幹部' ? '幹部' : '全員',
+        })
+        break
       default:
         throw new Error('Unknown action: ' + body.action)
     }
@@ -128,12 +159,14 @@ function createTasks(tasks) {
           return t.creatorId || ''
         case 'created_at':
           return today
+        case 'start_date':
+          return t.startDate || ''
         case 'due_date':
           return t.deadline || ''
         case 'due_time':
           return t.dueTime || ''
         case 'visibility':
-          return '全員'
+          return t.visibility === '幹部' ? '幹部' : '全員'
         case 'department':
           return t.department || ''
         case 'category':
@@ -192,9 +225,16 @@ function notifyReview(taskId) {
   try {
     var task = findRow(SHEET_TASKS, taskId)
     if (!task) return
+    var assigneeIds = String(task.assignee_id || '')
+      .split(',')
+      .map(function (s) {
+        return s.trim()
+      })
+      .filter(Boolean)
     notifyAdmins(
       '[Orbit] タスクの確認をお願いします',
       '「' + task.title + '」が確認待ちになりました。\n\nOrbitで確認し、問題なければ「完了」にしてください。',
+      reportsToEmails(assigneeIds),
     )
   } catch (err) {
     // best-effort
@@ -202,9 +242,16 @@ function notifyReview(taskId) {
 }
 
 // Shared recipient logic: notify_new_task=TRUE members, or every 代表 if
-// nobody opted in. Best-effort — a mail failure is swallowed.
-function notifyAdmins(subject, body) {
+// nobody opted in. Best-effort — a mail failure is swallowed. When
+// `preferredEmails` is given (item 9's "admin of admins" hierarchy — e.g. a
+// task's assignee's reports_to_id) those are used instead, still falling
+// back to the default set if none resolve to anything.
+function notifyAdmins(subject, body, preferredEmails) {
   try {
+    if (preferredEmails && preferredEmails.length > 0) {
+      MailApp.sendEmail({ to: preferredEmails.join(','), subject: subject, body: body })
+      return
+    }
     var sheet = getSheet(SHEET_MEMBERS)
     var headers = headerRow(sheet)
     var rows = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 0), headers.length).getValues()
@@ -228,6 +275,67 @@ function notifyAdmins(subject, body) {
     MailApp.sendEmail({ to: recipients.join(','), subject: subject, body: body })
   } catch (err) {
     // swallow — a mail error shouldn't roll back the caller's action
+  }
+}
+
+// Resolves the "admin of admins" recipients for a set of assignee member
+// ids: each assignee's reports_to_id (if set) mapped to that member's
+// email. Returns [] when nobody involved has a reports_to_id set, so
+// callers fall back to notifyAdmins' default opted-in/代表 logic.
+function reportsToEmails(assigneeIds) {
+  try {
+    var sheet = getSheet(SHEET_MEMBERS)
+    var headers = headerRow(sheet)
+    var idCol = headers.indexOf('id')
+    var emailCol = headers.indexOf('email')
+    var reportsToCol = headers.indexOf('reports_to_id')
+    if (idCol === -1 || emailCol === -1 || reportsToCol === -1) return []
+    var rows = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 0), headers.length).getValues()
+
+    var byId = {}
+    rows.forEach(function (r) {
+      byId[String(r[idCol])] = { email: String(r[emailCol] || '').trim(), reportsTo: String(r[reportsToCol] || '').trim() }
+    })
+
+    var emails = []
+    ;(assigneeIds || []).forEach(function (aid) {
+      var m = byId[String(aid)]
+      var managerId = m && m.reportsTo
+      var manager = managerId && byId[managerId]
+      if (manager && manager.email && emails.indexOf(manager.email) === -1) {
+        emails.push(manager.email)
+      }
+    })
+    return emails
+  } catch (err) {
+    return []
+  }
+}
+
+// Emails admins (routed via reportsToEmails when the task's assignees have
+// a designated 報告先) when a task's start date / deadline changes from
+// the detail drawer.
+function notifyScheduleChange(taskId) {
+  try {
+    var task = findRow(SHEET_TASKS, taskId)
+    if (!task) return
+    var assigneeIds = String(task.assignee_id || '')
+      .split(',')
+      .map(function (s) {
+        return s.trim()
+      })
+      .filter(Boolean)
+    notifyAdmins(
+      '[Orbit] タスクの日程が変更されました',
+      '「' + task.title + '」の日程が変更されました。\n開始日: ' +
+        (task.start_date || '未設定') +
+        '\n期限: ' +
+        (task.due_date || '未設定') +
+        '\n\nOrbitで確認してください。',
+      reportsToEmails(assigneeIds),
+    )
+  } catch (err) {
+    // best-effort
   }
 }
 

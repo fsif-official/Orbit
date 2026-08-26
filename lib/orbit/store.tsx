@@ -12,6 +12,7 @@ import type {
   Member,
   Project,
   ProjectTemplateTask,
+  Role,
   Task,
   TaskStatus,
   Priority,
@@ -20,9 +21,10 @@ import type {
   ParsedTask,
   ProgressEntry,
 } from './types'
+import { canSeeExecTasks } from './types'
 import { MEMBERS, PROJECTS, SEED_TASKS, SEED_INPUTS } from './seed'
 import { fetchRemoteData, isRemoteConfigured, remoteApi, toCreatePayload } from './remote'
-import { daysSince } from './utils'
+import { daysSince, deadlineLevel } from './utils'
 
 type Mode = 'input' | 'output'
 type RemoteStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -103,6 +105,13 @@ interface OrbitContextValue extends OrbitState {
   addProject: (name: string, description: string, type?: string) => void
   removeMember: (memberId: string) => void
   updateNotify: (memberId: string, notify: boolean) => void
+  updateRole: (memberId: string, role: Role) => void
+  updateReportsTo: (memberId: string, reportsToId: string | null) => void
+  updateDisplayName: (memberId: string, displayName: string) => void
+  toggleUnavailableDate: (memberId: string, date: string) => void
+  updateSchedule: (id: string, startDate: string | null, deadline: string | null) => void
+  updateDependsOn: (id: string, dependsOnIds: string[]) => void
+  notifications: import('./types').NotificationItem[]
   getMember: (id: string | null) => Member | undefined
   getProject: (id: string) => Project | undefined
   getInput: (id: string | undefined) => TaskInput | undefined
@@ -340,6 +349,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         projectId: p.projectId,
         department: p.department,
         assigneeIds: p.assigneeIds ?? [],
+        startDate: p.startDate ?? null,
         deadline: p.deadline,
         dueTime: p.dueTime ?? null,
         category: p.category,
@@ -353,6 +363,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         createdAt: now,
         progressHistory: [],
         pendingApproval: true,
+        visibility: p.visibility ?? 'all',
       }))
 
       const input: TaskInput = {
@@ -615,6 +626,63 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  const updateRole = useCallback(
+    (memberId: string, role: Role) => {
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role } : m)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateRole(memberId, role))
+    },
+    [runRemote],
+  )
+
+  const updateReportsTo = useCallback(
+    (memberId: string, reportsToId: string | null) => {
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, reportsToId: reportsToId ?? undefined } : m)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateReportsTo(memberId, reportsToId))
+    },
+    [runRemote],
+  )
+
+  const updateDisplayName = useCallback(
+    (memberId: string, displayName: string) => {
+      const trimmed = displayName.trim()
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, displayName: trimmed || undefined } : m)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateDisplayName(memberId, trimmed))
+    },
+    [runRemote],
+  )
+
+  const toggleUnavailableDate = useCallback(
+    (memberId: string, date: string) => {
+      const member = members.find((m) => m.id === memberId)
+      if (!member) return
+      const cur = member.unavailableDates ?? []
+      const next = cur.includes(date) ? cur.filter((d) => d !== date) : [...cur, date]
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, unavailableDates: next } : m)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateUnavailableDates(memberId, next))
+    },
+    [members, runRemote],
+  )
+
+  const updateSchedule = useCallback(
+    (id: string, startDate: string | null, deadline: string | null) => {
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, startDate, deadline } : t)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateSchedule(id, startDate, deadline))
+    },
+    [runRemote],
+  )
+
+  const updateDependsOn = useCallback(
+    (id: string, dependsOnIds: string[]) => {
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, dependsOnIds } : t)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateDependsOn(id, dependsOnIds))
+    },
+    [runRemote],
+  )
+
   const persistOnboarded = useCallback((ids: Set<string>) => {
     try {
       window.localStorage.setItem(ONBOARDED_STORAGE_KEY, JSON.stringify([...ids]))
@@ -667,15 +735,63 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [members, currentUserId],
   )
 
-  const visibleTasks = useMemo(
-    () => tasks.filter((t) => !t.pendingApproval && !isArchived(t)),
-    [tasks],
-  )
+  const visibleTasks = useMemo(() => {
+    const canSeeExec = currentUser ? canSeeExecTasks(currentUser.role) : false
+    return tasks.filter(
+      (t) =>
+        !t.pendingApproval &&
+        !isArchived(t) &&
+        (t.visibility !== '幹部' || canSeeExec),
+    )
+  }, [tasks, currentUser])
   const pendingTasks = useMemo(() => tasks.filter((t) => t.pendingApproval), [tasks])
   const archivedTasks = useMemo(
     () => tasks.filter((t) => !t.pendingApproval && isArchived(t)),
     [tasks],
   )
+
+  const notifications = useMemo(() => {
+    if (!currentUser) return []
+    const items: import('./types').NotificationItem[] = []
+    const isAdmin = currentUser.role !== '一般'
+    if (isAdmin) {
+      pendingTasks.forEach((t) => {
+        items.push({
+          id: `approval-${t.id}`,
+          kind: 'approval',
+          title: `承認依頼: ${t.name}`,
+          detail: '新しいタスクが承認待ちです',
+          taskId: t.id,
+        })
+      })
+      visibleTasks
+        .filter((t) => t.status === 'review')
+        .forEach((t) => {
+          items.push({
+            id: `review-${t.id}`,
+            kind: 'review',
+            title: `確認待ち: ${t.name}`,
+            detail: '完了の確認が必要です',
+            taskId: t.id,
+          })
+        })
+    }
+    visibleTasks
+      .filter((t) => t.assigneeIds.includes(currentUser.id) && t.status !== 'done')
+      .forEach((t) => {
+        const dl = deadlineLevel(t)
+        if (dl.level === 'overdue' || dl.level === 'today' || dl.level === 'soon' || dl.level === 'near') {
+          items.push({
+            id: `deadline-${t.id}`,
+            kind: 'deadline',
+            title: t.name,
+            detail: dl.label,
+            taskId: t.id,
+          })
+        }
+      })
+    return items
+  }, [currentUser, pendingTasks, visibleTasks])
 
   const projectTypes = useMemo(
     () =>
@@ -736,6 +852,13 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     addProject,
     removeMember,
     updateNotify,
+    updateRole,
+    updateReportsTo,
+    updateDisplayName,
+    toggleUnavailableDate,
+    updateSchedule,
+    updateDependsOn,
+    notifications,
     getMember,
     getProject,
     getInput,

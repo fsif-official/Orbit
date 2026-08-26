@@ -7,17 +7,30 @@ import { Avatar, StatusBadge, DifficultyBadge, SectionLabel } from '@/components
 import { CalendarView } from '@/components/orbit/output/calendar-view'
 import { TaskDetailDrawer } from '@/components/orbit/output/task-detail-drawer'
 import { formatDeadlineFull } from '@/lib/orbit/utils'
+import { isAdminRole } from '@/lib/orbit/types'
 import { cn } from '@/lib/utils'
-import { ArrowLeft, Plus, Target, Sparkles, Activity, X } from 'lucide-react'
+import { ArrowLeft, Plus, Target, Sparkles, Activity, X, Pencil, Check, CalendarOff } from 'lucide-react'
 
 type Tab = 'overview' | 'calendar'
 
+const ROLE_LABEL: Record<string, string> = { 代表: '代表', 班長: '班長' }
+
 export function PersonDetail({ id }: { id: string }) {
-  const { getMember, visibleTasks: tasks, currentUser, updateWill, updateJudgment, getProject } =
-    useOrbit()
+  const {
+    getMember,
+    visibleTasks: tasks,
+    currentUser,
+    updateWill,
+    updateJudgment,
+    getProject,
+    updateDisplayName,
+    toggleUnavailableDate,
+  } = useOrbit()
   const { go } = useNav()
   const [tab, setTab] = useState<Tab>('overview')
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
   const member = getMember(id)
 
   if (!member) {
@@ -30,12 +43,20 @@ export function PersonDetail({ id }: { id: string }) {
 
   const mine = tasks.filter((t) => t.assigneeIds.includes(member.id))
   const active = mine.filter((t) => t.status !== 'done').length
+  const completed = mine.filter((t) => t.status === 'done')
   const history = mine
     .slice()
     .sort((a, b) => (b.completedDate ?? '').localeCompare(a.completedDate ?? ''))
+  const categoryTally = new Map<string, number>()
+  completed.forEach((t) => {
+    if (!t.category) return
+    categoryTally.set(t.category, (categoryTally.get(t.category) ?? 0) + 1)
+  })
+  const topCategories = Array.from(categoryTally.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3)
 
   const isSelf = currentUser?.id === member.id
-  const isAdmin = currentUser?.role === 'admin'
+  const isAdmin = !!currentUser && isAdminRole(currentUser.role)
+  const displayName = member.displayName || member.name
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
@@ -51,9 +72,56 @@ export function PersonDetail({ id }: { id: string }) {
       <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-5">
         <Avatar member={member} size={56} />
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold tracking-tight">{member.name}</h1>
+          {editingName ? (
+            <div className="flex items-center gap-1.5">
+              <input
+                autoFocus
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return
+                  if (e.key === 'Enter') {
+                    updateDisplayName(member.id, nameDraft.trim())
+                    setEditingName(false)
+                  }
+                  if (e.key === 'Escape') setEditingName(false)
+                }}
+                placeholder={member.name}
+                className="h-8 w-48 rounded-md border border-primary bg-card px-2 text-lg font-semibold outline-none"
+              />
+              <button
+                onClick={() => {
+                  updateDisplayName(member.id, nameDraft.trim())
+                  setEditingName(false)
+                }}
+                className="rounded-md p-1 text-primary hover:bg-secondary"
+                aria-label="保存"
+              >
+                <Check className="size-4" />
+              </button>
+            </div>
+          ) : (
+            <h1 className="flex items-center gap-1.5 text-xl font-semibold tracking-tight">
+              {displayName}
+              {member.displayName && (
+                <span className="text-xs font-normal text-muted-foreground">({member.name})</span>
+              )}
+              {isSelf && (
+                <button
+                  onClick={() => {
+                    setNameDraft(member.displayName ?? member.name)
+                    setEditingName(true)
+                  }}
+                  className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  aria-label="表示名を編集"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              )}
+            </h1>
+          )}
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {member.role === 'admin' ? '管理者' : member.affiliation}
+            {ROLE_LABEL[member.role] ?? member.affiliation}
           </p>
         </div>
         <div className="text-right">
@@ -86,7 +154,46 @@ export function PersonDetail({ id }: { id: string }) {
       </div>
 
       {tab === 'calendar' && (
-        <div className="mt-5">
+        <div className="mt-5 flex flex-col gap-4">
+          {isSelf && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-center gap-2">
+                <CalendarOff className="size-4 text-muted-foreground" />
+                <SectionLabel>稼働できない日</SectionLabel>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                指定した日はアサイン検討時の参考として表示されます。
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {(member.unavailableDates ?? [])
+                  .slice()
+                  .sort()
+                  .map((d) => (
+                    <span
+                      key={d}
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-secondary/60 px-1.5 py-0.5 text-xs font-medium"
+                    >
+                      {d}
+                      <button
+                        onClick={() => toggleUnavailableDate(member.id, d)}
+                        className="opacity-60 hover:opacity-100"
+                        aria-label={`${d} を削除`}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                <input
+                  type="date"
+                  onChange={(e) => {
+                    if (e.target.value) toggleUnavailableDate(member.id, e.target.value)
+                    e.target.value = ''
+                  }}
+                  className="h-7 rounded-md border border-dashed border-border-strong bg-card px-2 text-xs outline-none focus:border-primary"
+                />
+              </div>
+            </div>
+          )}
           <CalendarView tasks={mine} onOpenTask={setOpenTaskId} />
         </div>
       )}
@@ -144,8 +251,41 @@ export function PersonDetail({ id }: { id: string }) {
         </TalentCard>
       </div>
 
-      {/* Task history */}
+      {/* Achievements */}
       <div className="mt-6">
+        <SectionLabel>実績</SectionLabel>
+        <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border border-border bg-card p-3">
+            <p className="text-2xl font-semibold tabular-nums">{completed.length}</p>
+            <p className="text-xs text-muted-foreground">完了タスク数</p>
+          </div>
+          <div className="rounded-xl border border-border bg-card p-3">
+            <p className="text-2xl font-semibold tabular-nums">{member.judgment.length}</p>
+            <p className="text-xs text-muted-foreground">認定スキル数</p>
+          </div>
+          <div className="col-span-2 rounded-xl border border-border bg-card p-3">
+            <p className="text-xs text-muted-foreground">得意カテゴリ</p>
+            {topCategories.length > 0 ? (
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {topCategories.map(([cat, count]) => (
+                  <span
+                    key={cat}
+                    className="inline-flex items-center gap-1 rounded-md bg-primary-muted px-1.5 py-0.5 text-xs font-medium text-accent-foreground"
+                  >
+                    {cat}
+                    <span className="text-[10px] opacity-70">{count}件</span>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-muted-foreground">まだ実績がありません</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Task history */}
+      <div className="mt-4">
         <SectionLabel>タスク履歴</SectionLabel>
         <div className="mt-2 overflow-hidden rounded-xl border border-border bg-card">
           <table className="w-full text-sm">

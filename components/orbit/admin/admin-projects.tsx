@@ -124,7 +124,7 @@ export function AdminProjects() {
                     {pm.length > 0 ? (
                       <div className="flex -space-x-1.5">
                         {pm.slice(0, 6).map((m) => (
-                          <span key={m.id} className="rounded-full ring-2 ring-card" title={m.name}>
+                          <span key={m.id} className="rounded-full ring-2 ring-card" title={m.displayName || m.name}>
                             <Avatar member={m} size={22} />
                           </span>
                         ))}

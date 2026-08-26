@@ -92,15 +92,15 @@ export function LoginScreen() {
               <Avatar member={u} size={40} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium">{u.name}</span>
+                  <span className="font-medium">{u.displayName || u.name}</span>
                   <span
                     className={
-                      u.role === 'admin'
+                      u.role !== '一般'
                         ? 'rounded bg-primary-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent-foreground'
                         : 'rounded bg-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground'
                     }
                   >
-                    {u.role === 'admin' ? 'Administrator' : 'Member'}
+                    {u.role}
                   </span>
                 </div>
                 <div className="text-xs text-muted-foreground">{u.affiliation}</div>

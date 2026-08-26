@@ -129,11 +129,9 @@ function initialsForName(name: string): string {
   return cleaned.slice(0, 2).toUpperCase()
 }
 
-// 代表・班長 both map to the app's 'admin' role. Full project-scoped 班長
-// permissions (design doc §3) aren't implemented yet — a 班長 currently
-// gets full admin access, not just their own project_ids.
+// Sheet role values are already 一般/班長/代表; guard against blanks/typos.
 function roleFromSheet(role: string): Role {
-  return role === '一般' ? 'member' : 'admin'
+  return role === '班長' || role === '代表' ? role : '一般'
 }
 
 function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Project>): Member {
@@ -163,6 +161,9 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
     skills: [...will, ...judgment],
     email: r.email || undefined,
     notify: /^(true|1|yes)$/i.test((r.notify_new_task || '').trim()),
+    displayName: r.display_name || undefined,
+    unavailableDates: splitTags(r.unavailable_dates),
+    reportsToId: r.reports_to_id || undefined,
   }
 }
 
@@ -188,6 +189,7 @@ function mapTaskRow(r: Record<string, string>): Task {
     projectId: r.project_id,
     department: (r.department || '未分類') as Department,
     assigneeIds: splitTags(r.assignee_id),
+    startDate: r.start_date || null,
     deadline: r.due_date || null,
     dueTime: r.due_time || null,
     category: r.category || '',
@@ -203,6 +205,8 @@ function mapTaskRow(r: Record<string, string>): Task {
     progress: r.progress_note || undefined,
     progressHistory: [],
     pendingApproval: r.approval_status === '承認待ち',
+    dependsOnIds: splitTags(r.depends_on_ids),
+    visibility: r.visibility === '幹部' ? '幹部' : 'all',
   }
 }
 
@@ -240,12 +244,14 @@ export interface CreateTaskPayload {
   skills: string[]
   difficulty: Difficulty
   priority: Priority
+  startDate?: string | null
   deadline: string | null
   dueTime?: string | null
   assigneeIds?: string[]
   creatorId?: string
   originalInputId?: string
   pendingApproval?: boolean
+  visibility?: 'all' | '幹部'
 }
 
 async function postToGas<T = unknown>(action: string, payload: Record<string, unknown>): Promise<T> {
@@ -284,6 +290,19 @@ export const remoteApi = {
   removeMember: (memberId: string) => postToGas('removeMember', { memberId }),
   updateNotify: (memberId: string, notify: boolean) =>
     postToGas('updateNotify', { memberId, notify }),
+  updateRole: (memberId: string, role: Role) => postToGas('updateRole', { memberId, role }),
+  updateReportsTo: (memberId: string, reportsToId: string | null) =>
+    postToGas('updateReportsTo', { memberId, reportsToId }),
+  updateDisplayName: (memberId: string, displayName: string) =>
+    postToGas('updateDisplayName', { memberId, displayName }),
+  updateUnavailableDates: (memberId: string, dates: string[]) =>
+    postToGas('updateUnavailableDates', { memberId, dates }),
+  updateSchedule: (taskId: string, startDate: string | null, deadline: string | null) =>
+    postToGas('updateSchedule', { taskId, startDate, deadline }),
+  updateDependsOn: (taskId: string, dependsOnIds: string[]) =>
+    postToGas('updateDependsOn', { taskId, dependsOnIds }),
+  updateVisibility: (taskId: string, visibility: 'all' | '幹部') =>
+    postToGas('updateVisibility', { taskId, visibility }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to
@@ -298,11 +317,13 @@ export function toCreatePayload(tempId: string, p: ParsedTask, creatorId?: strin
     skills: p.skills,
     difficulty: p.difficulty,
     priority: p.priority,
+    startDate: p.startDate,
     deadline: p.deadline,
     dueTime: p.dueTime,
     assigneeIds: p.assigneeIds,
     creatorId,
     originalInputId,
     pendingApproval: true,
+    visibility: p.visibility ?? 'all',
   }
 }

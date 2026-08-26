@@ -14,13 +14,14 @@ import {
 import {
   STATUS_LABEL,
   STATUS_ORDER,
+  isAdminRole,
   type Member,
   type Task,
   type TaskStatus,
 } from '@/lib/orbit/types'
 import { formatDeadlineFull, formatDateTime, isOverdue } from '@/lib/orbit/utils'
 import { cn } from '@/lib/utils'
-import { Check, FileText, TriangleAlert, UserPlus, X } from 'lucide-react'
+import { Check, FileText, GitBranch, Pencil, TriangleAlert, UserPlus, X } from 'lucide-react'
 
 export function TaskDetailDrawer({
   taskId,
@@ -38,12 +39,16 @@ export function TaskDetailDrawer({
     updateTaskStatus,
     updateProgress,
     assignTask,
+    updateSchedule,
+    updateDependsOn,
     members,
   } = useOrbit()
   const toast = useToast()
   const [confirmTake, setConfirmTake] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
   const [inputOpen, setInputOpen] = useState(false)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [dependsOpen, setDependsOpen] = useState(false)
 
   const task = tasks.find((t) => t.id === taskId) ?? null
   const open = !!taskId
@@ -51,6 +56,10 @@ export function TaskDetailDrawer({
   const assignees = (task?.assigneeIds ?? [])
     .map((id) => getMember(id))
     .filter(Boolean) as Member[]
+  const dependsOnTasks = (task?.dependsOnIds ?? [])
+    .map((id) => tasks.find((t) => t.id === id))
+    .filter(Boolean) as Task[]
+  const isAdmin = !!currentUser && isAdminRole(currentUser.role)
 
   return (
     <>
@@ -59,8 +68,9 @@ export function TaskDetailDrawer({
           <DrawerBody
             task={task}
             currentUserId={currentUser?.id ?? null}
-            isAdmin={currentUser?.role === 'admin'}
+            isAdmin={isAdmin}
             assignees={assignees}
+            dependsOnTasks={dependsOnTasks}
             creator={getMember(task.createdById ?? null) ?? null}
             projectName={getProject(task.projectId)?.name ?? ''}
             hasSourceInput={!!sourceInput}
@@ -69,6 +79,8 @@ export function TaskDetailDrawer({
             onTake={() => setConfirmTake(true)}
             onOpenAssign={() => setAssignOpen(true)}
             onOpenInput={() => setInputOpen(true)}
+            onOpenSchedule={() => setScheduleOpen(true)}
+            onOpenDepends={() => setDependsOpen(true)}
             onProgress={(text) => {
               updateProgress(task.id, text)
               toast('進捗を更新しました')
@@ -165,7 +177,7 @@ export function TaskDetailDrawer({
               >
                 <Avatar member={m} size={28} />
                 <div className="min-w-0 flex-1">
-                  <div className="font-medium">{m.name}</div>
+                  <div className="font-medium">{m.displayName || m.name}</div>
                   <div className="text-xs text-muted-foreground">{m.affiliation}</div>
                 </div>
                 {checked && <Check className="size-4 shrink-0 text-primary" strokeWidth={3} />}
@@ -174,7 +186,119 @@ export function TaskDetailDrawer({
           })}
         </div>
       </Modal>
+
+      {/* Schedule (start date / deadline) edit */}
+      <ScheduleModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        task={task}
+        onSave={(startDate, deadline) => {
+          if (!task) return
+          updateSchedule(task.id, startDate, deadline)
+          toast('日程を変更しました。管理者に通知されます。')
+          setScheduleOpen(false)
+        }}
+      />
+
+      {/* Dependency (prerequisite tasks) edit */}
+      <Modal open={dependsOpen} onClose={() => setDependsOpen(false)}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold">前提タスクを設定</h2>
+          <button onClick={() => setDependsOpen(false)} aria-label="閉じる">
+            <X className="size-4 text-muted-foreground" />
+          </button>
+        </div>
+        <p className="mb-2 text-xs text-muted-foreground">
+          このタスクを開始する前に完了しておく必要があるタスクを選びます。
+        </p>
+        <div className="flex max-h-80 flex-col gap-1 overflow-auto orbit-scroll">
+          {tasks
+            .filter((t) => t.id !== task?.id)
+            .map((t) => {
+              const checked = !!task?.dependsOnIds?.includes(t.id)
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    if (!task) return
+                    const cur = task.dependsOnIds ?? []
+                    const next = checked ? cur.filter((id) => id !== t.id) : [...cur, t.id]
+                    updateDependsOn(task.id, next)
+                  }}
+                  className={cn(
+                    'flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm hover:bg-secondary',
+                    checked && 'bg-primary-muted',
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{t.name}</div>
+                    <div className="text-xs text-muted-foreground">{STATUS_LABEL[t.status]}</div>
+                  </div>
+                  {checked && <Check className="size-4 shrink-0 text-primary" strokeWidth={3} />}
+                </button>
+              )
+            })}
+        </div>
+      </Modal>
     </>
+  )
+}
+
+function ScheduleModal({
+  open,
+  onClose,
+  task,
+  onSave,
+}: {
+  open: boolean
+  onClose: () => void
+  task: Task | null
+  onSave: (startDate: string | null, deadline: string | null) => void
+}) {
+  const [start, setStart] = useState('')
+  const [deadline, setDeadline] = useState('')
+
+  // sync drafts whenever the modal opens for a (possibly different) task
+  const [lastTaskId, setLastTaskId] = useState<string | null>(null)
+  if (task && task.id !== lastTaskId && open) {
+    setLastTaskId(task.id)
+    setStart(task.startDate ?? '')
+    setDeadline(task.deadline ?? '')
+  }
+
+  return (
+    <Modal open={open} onClose={onClose}>
+      <h2 className="text-base font-semibold">日程を変更</h2>
+      <p className="mt-1 text-xs text-muted-foreground">変更すると管理者に通知が送られます。</p>
+      <div className="mt-4 flex flex-col gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">開始日</span>
+          <input
+            type="date"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            className="h-9 rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">期限</span>
+          <input
+            type="date"
+            value={deadline}
+            onChange={(e) => setDeadline(e.target.value)}
+            className="h-9 rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary"
+          />
+        </label>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="ghost" className="h-9" onClick={onClose}>
+          キャンセル
+        </Button>
+        <Button className="h-9" onClick={() => onSave(start || null, deadline || null)}>
+          保存
+        </Button>
+      </div>
+    </Modal>
   )
 }
 
@@ -183,6 +307,7 @@ function DrawerBody({
   currentUserId,
   isAdmin,
   assignees,
+  dependsOnTasks,
   creator,
   projectName,
   hasSourceInput,
@@ -191,12 +316,15 @@ function DrawerBody({
   onTake,
   onOpenAssign,
   onOpenInput,
+  onOpenSchedule,
+  onOpenDepends,
   onProgress,
 }: {
   task: Task
   currentUserId: string | null
   isAdmin: boolean
   assignees: Member[]
+  dependsOnTasks: Task[]
   creator: Member | null
   projectName: string
   hasSourceInput: boolean
@@ -205,6 +333,8 @@ function DrawerBody({
   onTake: () => void
   onOpenAssign: () => void
   onOpenInput: () => void
+  onOpenSchedule: () => void
+  onOpenDepends: () => void
   onProgress: (text: string) => void
 }) {
   const overdue = isOverdue(task)
@@ -233,9 +363,16 @@ function DrawerBody({
       </div>
 
       <div className="flex-1 overflow-auto orbit-scroll px-5 py-4">
-        <h2 id="task-drawer-title" className="text-lg font-semibold tracking-tight text-balance">
-          {task.name}
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 id="task-drawer-title" className="text-lg font-semibold tracking-tight text-balance">
+            {task.name}
+          </h2>
+          {task.visibility === '幹部' && (
+            <span className="shrink-0 rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
+              幹部限定
+            </span>
+          )}
+        </div>
         {task.description && (
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             {task.description}
@@ -258,7 +395,7 @@ function DrawerBody({
                 {assignees.map((a) => (
                   <span key={a.id} className="inline-flex items-center gap-2 text-sm">
                     <Avatar member={a} size={22} />
-                    {a.name}
+                    {a.displayName || a.name}
                   </span>
                 ))}
               </div>
@@ -268,12 +405,57 @@ function DrawerBody({
               </span>
             )}
           </Row>
+          <Row label="開始日">
+            <span className="inline-flex items-center gap-1.5 text-sm">
+              {formatDeadlineFull(task.startDate ?? null)}
+              {isAdmin && (
+                <button
+                  onClick={onOpenSchedule}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="日程を編集"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              )}
+            </span>
+          </Row>
           <Row label="期限">
             <span className={cn('inline-flex items-center gap-1.5 text-sm', overdue && 'text-destructive')}>
               {overdue && <TriangleAlert className="size-3.5" />}
               {formatDeadlineFull(task.deadline)}
               {task.dueTime && <span className="tabular-nums">　{task.dueTime}</span>}
+              {isAdmin && (
+                <button
+                  onClick={onOpenSchedule}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="日程を編集"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              )}
             </span>
+          </Row>
+          <Row label="前提タスク">
+            <div className="flex flex-col items-end gap-1">
+              {dependsOnTasks.length > 0 ? (
+                dependsOnTasks.map((d) => (
+                  <span key={d.id} className="inline-flex items-center gap-1.5 text-sm">
+                    <GitBranch className="size-3.5 text-muted-foreground" />
+                    {d.name}
+                  </span>
+                ))
+              ) : (
+                <span className="text-sm text-muted-foreground">なし</span>
+              )}
+              {isAdmin && (
+                <button
+                  onClick={onOpenDepends}
+                  className="text-xs text-primary hover:underline"
+                >
+                  編集
+                </button>
+              )}
+            </div>
           </Row>
           <Row label="ステータス">
             <span className="inline-flex items-center gap-1.5 text-sm">
@@ -298,7 +480,7 @@ function DrawerBody({
             {creator ? (
               <span className="inline-flex items-center gap-2 text-sm">
                 <Avatar member={creator} size={22} />
-                {creator.name}
+                {creator.displayName || creator.name}
               </span>
             ) : (
               <span className="text-sm text-muted-foreground">不明</span>

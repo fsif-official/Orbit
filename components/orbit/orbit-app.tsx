@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { OrbitProvider, useOrbit } from '@/lib/orbit/store'
 import { NavProvider, useNav } from '@/lib/orbit/nav'
 import { ThemeProvider } from '@/lib/orbit/theme'
+import { TaskDrawerProvider, useTaskDrawer } from '@/lib/orbit/task-drawer'
 import { ToastProvider, useToast } from './toast'
 import { LoginScreen } from './login-screen'
 import { OnboardingScreen } from './onboarding-screen'
@@ -13,6 +14,7 @@ import { OutputScreen } from './output/output-screen'
 import { PersonDetail } from './people/person-detail'
 import { ProjectDetail } from './projects/project-detail'
 import { AdminScreen } from './admin/admin-screen'
+import { TaskDetailDrawer } from './output/task-detail-drawer'
 import { TriangleAlert } from 'lucide-react'
 
 // lives inside ToastProvider so it can surface store-level events that
@@ -33,6 +35,7 @@ function SkillCertifiedWatcher() {
 function Router() {
   const { currentUser, needsOnboarding, remoteEnabled, remoteError } = useOrbit()
   const { screen } = useNav()
+  const { openTaskId, closeTask } = useTaskDrawer()
 
   if (!currentUser) return <LoginScreen />
   if (needsOnboarding) return <OnboardingScreen />
@@ -53,6 +56,7 @@ function Router() {
         {screen.name === 'project' && <ProjectDetail id={screen.id} />}
         {screen.name === 'admin' && <AdminScreen section={screen.section} />}
       </div>
+      <TaskDetailDrawer taskId={openTaskId} onClose={closeTask} />
     </div>
   )
 }
@@ -64,7 +68,9 @@ export function OrbitApp() {
         <ToastProvider>
           <SkillCertifiedWatcher />
           <NavProvider>
-            <Router />
+            <TaskDrawerProvider>
+              <Router />
+            </TaskDrawerProvider>
           </NavProvider>
         </ToastProvider>
       </OrbitProvider>
