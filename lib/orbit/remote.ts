@@ -19,6 +19,7 @@ import type {
   TaskComment,
   TaskDeliverable,
   TaskHistoryEntry,
+  TaskRetrospective,
   TaskSetTemplate,
   TaskStatus,
 } from './types'
@@ -244,6 +245,9 @@ function mapTaskRow(r: Record<string, string>): Task {
     deliverables: parseJsonArray<TaskDeliverable>(r.deliverables_json),
     history: parseJsonArray<TaskHistoryEntry>(r.history_json),
     comments: parseJsonArray<TaskComment>(r.comments_json),
+    estimatedHours: r.estimated_hours ? Number(r.estimated_hours) : undefined,
+    actualHours: r.actual_hours ? Number(r.actual_hours) : undefined,
+    retrospective: parseJsonObject<TaskRetrospective>(r.retrospective_json),
   }
 }
 
@@ -254,6 +258,19 @@ function parseJsonArray<T>(raw: string | undefined): T[] | undefined {
   try {
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? (parsed as T[]) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Same as parseJsonArray but for a single JSON object cell (retrospective_json)
+function parseJsonObject<T>(raw: string | undefined): T | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as T)
+      : undefined
   } catch {
     return undefined
   }
@@ -357,6 +374,7 @@ export interface CreateTaskPayload {
   originalInputId?: string
   pendingApproval?: boolean
   visibility?: 'all' | '幹部'
+  estimatedHours?: number
 }
 
 async function postToGas<T = unknown>(action: string, payload: Record<string, unknown>): Promise<T> {
@@ -438,6 +456,12 @@ export const remoteApi = {
     postToGas('updateProjectOwner', { projectId, ownerId }),
   updateComments: (taskId: string, comments: TaskComment[]) =>
     postToGas('updateComments', { taskId, comments }),
+  updateEstimatedHours: (taskId: string, hours: number | null) =>
+    postToGas('updateEstimatedHours', { taskId, hours }),
+  updateActualHours: (taskId: string, hours: number | null) =>
+    postToGas('updateActualHours', { taskId, hours }),
+  updateRetrospective: (taskId: string, retrospective: TaskRetrospective | null) =>
+    postToGas('updateRetrospective', { taskId, retrospective }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to
@@ -460,5 +484,6 @@ export function toCreatePayload(tempId: string, p: ParsedTask, creatorId?: strin
     originalInputId,
     pendingApproval: true,
     visibility: p.visibility ?? 'all',
+    estimatedHours: p.estimatedHours,
   }
 }

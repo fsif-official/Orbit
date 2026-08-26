@@ -19,6 +19,7 @@ import type {
   TaskComment,
   TaskDeliverable,
   TaskHistoryEntry,
+  TaskRetrospective,
   TaskSetTemplate,
   TaskSetTemplateItem,
   TaskStatus,
@@ -183,6 +184,9 @@ interface OrbitContextValue extends OrbitState {
   updateDependsOn: (id: string, dependsOnIds: string[]) => void
   updateReviewer: (id: string, reviewerId: string | null) => void
   setBlocker: (id: string, note: string | null) => void
+  updateEstimatedHours: (id: string, hours: number | null) => void
+  updateActualHours: (id: string, hours: number | null) => void
+  updateRetrospective: (id: string, retrospective: TaskRetrospective | null) => void
   addDeliverable: (id: string, label: string, url: string) => void
   removeDeliverable: (id: string, deliverableId: string) => void
   addComment: (id: string, text: string) => void
@@ -922,6 +926,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         progressHistory: [],
         pendingApproval: true,
         visibility: p.visibility ?? 'all',
+        estimatedHours: p.estimatedHours,
       }))
 
       const input: TaskInput = {
@@ -1430,6 +1435,38 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  // 想定/実績の所要時間（item 5） — powers the Assignments page's
+  // per-member 今週の工数 indicator and the INPUT screen's estimate suggestion
+  const updateEstimatedHours = useCallback(
+    (id: string, hours: number | null) => {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, estimatedHours: hours ?? undefined } : t)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateEstimatedHours(id, hours))
+    },
+    [runRemote],
+  )
+  const updateActualHours = useCallback(
+    (id: string, hours: number | null) => {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, actualHours: hours ?? undefined } : t)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateActualHours(id, hours))
+    },
+    [runRemote],
+  )
+
+  // 完了時の振り返り（item 3） — pass null to clear
+  const updateRetrospective = useCallback(
+    (id: string, retrospective: TaskRetrospective | null) => {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, retrospective: retrospective ?? undefined } : t)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateRetrospective(id, retrospective))
+    },
+    [runRemote],
+  )
+
   // 成果物リンク管理（item 12） — Drive/Canva/GitHub/Figma等へのリンクを
   // タスクに複数紐付ける
   const addDeliverable = useCallback(
@@ -1813,6 +1850,9 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateDependsOn,
     updateReviewer,
     setBlocker,
+    updateEstimatedHours,
+    updateActualHours,
+    updateRetrospective,
     addDeliverable,
     removeDeliverable,
     addComment,

@@ -82,6 +82,9 @@ Admin → Membersの「メンバーを登録」フォームから新規メンバ
 | deliverables_json | 成果物リンクの配列（JSON文字列、例：`[{"id":"dl-1","label":"ポスターPDF","url":"https://drive.google.com/..."}]`）。タスク詳細と個人の実績ページに表示されます |
 | history_json | フィールド変更履歴の配列（JSON文字列）。担当者・期限・開始日・優先度・ステータス・確認者の変更を記録し、タスク詳細に表示されます |
 | comments_json | コメントの配列（JSON文字列）。タスク詳細のコメント欄に表示されます |
+| estimated_hours | 想定所要時間（時間、数値、任意）。タスク詳細から編集でき、INPUT画面では同カテゴリの過去実績の平均をおすすめ表示します。Admin → Assignments の「今週の工数」表示にも使われます |
+| actual_hours | 実績所要時間（時間、数値、任意）。タスク詳細から担当者/管理者が編集できます |
+| retrospective_json | 完了時の振り返り（JSON文字列、例：`{"good":"...","bad":"...","improve":"..."}`）。ステータスが完了のタスクでタスク詳細から編集でき、似たタスクの登録時（Admin承認画面・INPUT結果画面）に改善点として表示されます |
 
 > `accepted_at` / `deliverable_url` / `feedback_comment` は現状のUIからは未使用です（次フェーズ）。列として残しておいて構いません。
 

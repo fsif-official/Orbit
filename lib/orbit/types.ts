@@ -349,6 +349,22 @@ export interface Task {
   // discussion thread — distinct from progressHistory (which is a status
   // update log, not a conversation)
   comments?: TaskComment[]
+  // 想定/実績の所要時間（時間単位）— estimatedHours is set at INPUT time
+  // (see parsed-task-card.tsx's category-average suggestion) or edited
+  // later; actualHours is filled in around completion. Together these
+  // power the Assignments page's per-member 今週の工数 indicator.
+  estimatedHours?: number
+  actualHours?: number
+  // 完了時の振り返り — shown once status is 'done', and surfaced on any
+  // future task the similar-task heuristic (findSimilarTasks) flags as
+  // related, so lessons carry over instead of being re-learned
+  retrospective?: TaskRetrospective
+}
+
+export interface TaskRetrospective {
+  good: string
+  bad: string
+  improve: string
 }
 
 export interface TaskDeliverable {
@@ -389,6 +405,8 @@ export interface ParsedTask {
   assigneeIds: string[]
   approved: boolean
   visibility?: 'all' | '幹部'
+  // suggested/entered estimate at registration time — see Task.estimatedHours
+  estimatedHours?: number
 }
 
 export const STATUS_ORDER: TaskStatus[] = [

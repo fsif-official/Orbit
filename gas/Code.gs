@@ -147,6 +147,21 @@ function doPost(e) {
           comments_json: JSON.stringify(body.comments || []),
         })
         break
+      case 'updateEstimatedHours':
+        result = updateTaskFields(body.taskId, {
+          estimated_hours: body.hours === null || body.hours === undefined ? '' : body.hours,
+        })
+        break
+      case 'updateActualHours':
+        result = updateTaskFields(body.taskId, {
+          actual_hours: body.hours === null || body.hours === undefined ? '' : body.hours,
+        })
+        break
+      case 'updateRetrospective':
+        result = updateTaskFields(body.taskId, {
+          retrospective_json: body.retrospective ? JSON.stringify(body.retrospective) : '',
+        })
+        break
       case 'updateProjectMembers':
         result = updateProjectFields(body.projectId, {
           member_ids: (body.memberIds || []).join(','),
@@ -247,6 +262,8 @@ function createTasks(tasks) {
           return t.originalInputId || ''
         case 'approval_status':
           return t.pendingApproval === false ? '承認済み' : '承認待ち'
+        case 'estimated_hours':
+          return t.estimatedHours || ''
         default:
           return ''
       }

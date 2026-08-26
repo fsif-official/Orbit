@@ -84,6 +84,11 @@ export function AdminApprovals() {
                           {similar.map(({ task: s }) => (
                             <li key={s.id} className="text-xs text-muted-foreground">
                               ・{s.name}
+                              {s.status === 'done' && s.retrospective && (
+                                <span className="block pl-3 text-[11px] italic">
+                                  {s.retrospective.improve || s.retrospective.bad || s.retrospective.good}
+                                </span>
+                              )}
                             </li>
                           ))}
                         </ul>

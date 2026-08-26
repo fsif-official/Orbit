@@ -18,6 +18,7 @@ import {
   type Member,
   type Task,
   type TaskHistoryEntry,
+  type TaskRetrospective,
   type TaskStatus,
 } from '@/lib/orbit/types'
 import { formatDeadlineFull, formatDateTime, googleCalendarUrl, isOverdue } from '@/lib/orbit/utils'
@@ -96,6 +97,9 @@ export function TaskDetailDrawer({
     removeDeliverable,
     addComment,
     removeComment,
+    updateEstimatedHours,
+    updateActualHours,
+    updateRetrospective,
     members,
   } = useOrbit()
   const toast = useToast()
@@ -155,6 +159,12 @@ export function TaskDetailDrawer({
             onProgress={(text) => {
               updateProgress(task.id, text)
               toast('進捗を更新しました')
+            }}
+            onUpdateEstimatedHours={(hours) => updateEstimatedHours(task.id, hours)}
+            onUpdateActualHours={(hours) => updateActualHours(task.id, hours)}
+            onSaveRetrospective={(r) => {
+              updateRetrospective(task.id, r)
+              toast('振り返りを保存しました')
             }}
           />
         )}
@@ -539,6 +549,9 @@ function DrawerBody({
   onAddComment,
   onRemoveComment,
   onProgress,
+  onUpdateEstimatedHours,
+  onUpdateActualHours,
+  onSaveRetrospective,
 }: {
   task: Task
   currentUserId: string | null
@@ -565,6 +578,9 @@ function DrawerBody({
   onAddComment: (text: string) => void
   onRemoveComment: (commentId: string) => void
   onProgress: (text: string) => void
+  onUpdateEstimatedHours: (hours: number | null) => void
+  onUpdateActualHours: (hours: number | null) => void
+  onSaveRetrospective: (retrospective: TaskRetrospective | null) => void
 }) {
   const overdue = isOverdue(task)
   const calendarUrl = googleCalendarUrl(task, {
@@ -757,6 +773,22 @@ function DrawerBody({
                 <Tag key={s}>{s}</Tag>
               ))}
             </div>
+          </Row>
+          <Row label="想定時間">
+            <HoursField
+              value={task.estimatedHours}
+              editable={isAdmin}
+              onSave={onUpdateEstimatedHours}
+              placeholder="未設定"
+            />
+          </Row>
+          <Row label="実績時間">
+            <HoursField
+              value={task.actualHours}
+              editable={isAdmin || isAssignee}
+              onSave={onUpdateActualHours}
+              placeholder="未設定"
+            />
           </Row>
           <Row label="登録者">
             {creator ? (
@@ -1001,6 +1033,18 @@ function DrawerBody({
           </div>
         </div>
 
+        {/* Retrospective (item 3: 完了時の振り返り記録) — only meaningful
+            once the task is done; the entered text also gets surfaced on
+            future similar tasks via findSimilarTasks (see admin-approvals.tsx
+            / parsed-task-card.tsx) so lessons carry over */}
+        {task.status === 'done' && (
+          <RetrospectiveSection
+            retrospective={task.retrospective ?? null}
+            editable={isAdmin || isAssignee}
+            onSave={onSaveRetrospective}
+          />
+        )}
+
         {/* Change history */}
         {isAdmin && (task.history?.length ?? 0) > 0 && (
           <div className="mt-6">
@@ -1061,6 +1105,179 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div className="flex items-start justify-between gap-4 border-b border-border/60 py-2.5 last:border-0">
       <dt className="shrink-0 pt-0.5 text-xs font-medium text-muted-foreground">{label}</dt>
       <dd className="text-right">{children}</dd>
+    </div>
+  )
+}
+
+// inline-editable number-of-hours field (想定時間/実績時間) — click the
+// value to edit, Enter/blur saves, empty clears
+function HoursField({
+  value,
+  editable,
+  onSave,
+  placeholder,
+}: {
+  value: number | undefined
+  editable: boolean
+  onSave: (hours: number | null) => void
+  placeholder: string
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  const commit = () => {
+    const trimmed = draft.trim()
+    const n = trimmed ? Number(trimmed) : null
+    onSave(n !== null && !Number.isNaN(n) && n >= 0 ? n : null)
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <input
+        type="number"
+        min={0}
+        step={0.5}
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') setEditing(false)
+        }}
+        className="h-7 w-20 rounded-md border border-primary bg-card px-2 text-right text-sm outline-none"
+      />
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={!editable}
+      onClick={() => {
+        setDraft(value != null ? String(value) : '')
+        setEditing(true)
+      }}
+      className={cn(
+        'text-sm',
+        editable ? 'text-foreground hover:underline' : 'cursor-default text-muted-foreground',
+      )}
+    >
+      {value != null ? `${value}h` : placeholder}
+    </button>
+  )
+}
+
+function RetrospectiveSection({
+  retrospective,
+  editable,
+  onSave,
+}: {
+  retrospective: TaskRetrospective | null
+  editable: boolean
+  onSave: (r: TaskRetrospective | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [good, setGood] = useState(retrospective?.good ?? '')
+  const [bad, setBad] = useState(retrospective?.bad ?? '')
+  const [improve, setImprove] = useState(retrospective?.improve ?? '')
+
+  const startEdit = () => {
+    setGood(retrospective?.good ?? '')
+    setBad(retrospective?.bad ?? '')
+    setImprove(retrospective?.improve ?? '')
+    setEditing(true)
+  }
+
+  const save = () => {
+    const trimmed = { good: good.trim(), bad: bad.trim(), improve: improve.trim() }
+    onSave(trimmed.good || trimmed.bad || trimmed.improve ? trimmed : null)
+    setEditing(false)
+  }
+
+  return (
+    <div className="mt-6">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        振り返り
+      </div>
+      {editing ? (
+        <div className="flex flex-col gap-2.5">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">良かった点</span>
+            <textarea
+              value={good}
+              onChange={(e) => setGood(e.target.value)}
+              rows={2}
+              className="resize-none rounded-lg border border-border bg-card px-2.5 py-2 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">困った点</span>
+            <textarea
+              value={bad}
+              onChange={(e) => setBad(e.target.value)}
+              rows={2}
+              className="resize-none rounded-lg border border-border bg-card px-2.5 py-2 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">改善点</span>
+            <textarea
+              value={improve}
+              onChange={(e) => setImprove(e.target.value)}
+              rows={2}
+              className="resize-none rounded-lg border border-border bg-card px-2.5 py-2 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" className="h-8" onClick={() => setEditing(false)}>
+              キャンセル
+            </Button>
+            <Button className="h-8" onClick={save}>
+              保存
+            </Button>
+          </div>
+        </div>
+      ) : retrospective ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-sm">
+          {retrospective.good && (
+            <p>
+              <span className="font-medium text-muted-foreground">良かった点：</span>
+              {retrospective.good}
+            </p>
+          )}
+          {retrospective.bad && (
+            <p>
+              <span className="font-medium text-muted-foreground">困った点：</span>
+              {retrospective.bad}
+            </p>
+          )}
+          {retrospective.improve && (
+            <p>
+              <span className="font-medium text-muted-foreground">改善点：</span>
+              {retrospective.improve}
+            </p>
+          )}
+          {editable && (
+            <button
+              onClick={startEdit}
+              className="self-start text-xs font-medium text-primary hover:underline"
+            >
+              編集
+            </button>
+          )}
+        </div>
+      ) : editable ? (
+        <button
+          onClick={startEdit}
+          className="text-sm text-muted-foreground hover:text-foreground hover:underline"
+        >
+          振り返りを記録する
+        </button>
+      ) : (
+        <p className="text-sm text-muted-foreground">振り返りは記録されていません。</p>
+      )}
     </div>
   )
 }
