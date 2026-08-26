@@ -111,6 +111,7 @@ export function TaskDetailDrawer({
   const [dependsQuery, setDependsQuery] = useState('')
   const [reviewerOpen, setReviewerOpen] = useState(false)
   const [blockerOpen, setBlockerOpen] = useState(false)
+  const [handoffOpen, setHandoffOpen] = useState(false)
 
   const task = tasks.find((t) => t.id === taskId) ?? null
   const open = !!taskId
@@ -152,6 +153,7 @@ export function TaskDetailDrawer({
               setBlocker(task.id, null)
               toast('ブロックを解除しました')
             }}
+            onOpenHandoff={() => setHandoffOpen(true)}
             onAddDeliverable={(label, url) => addDeliverable(task.id, label, url)}
             onRemoveDeliverable={(id) => removeDeliverable(task.id, id)}
             onAddComment={(text) => addComment(task.id, text)}
@@ -267,6 +269,34 @@ export function TaskDetailDrawer({
           })}
         </div>
       </Modal>
+
+      {/* Task handoff (item 13: タスク引き継ぎ) */}
+      <HandoffModal
+        open={handoffOpen}
+        onClose={() => setHandoffOpen(false)}
+        task={task}
+        members={members}
+        onHandoff={(fromId, toId, note) => {
+          if (!task) return
+          const next = task.assigneeIds.filter((id) => id !== fromId)
+          if (!next.includes(toId)) next.push(toId)
+          assignTask(task.id, next)
+          const fromM = members.find((m) => m.id === fromId)
+          const toM = members.find((m) => m.id === toId)
+          const summary = [
+            `${fromM?.displayName || fromM?.name || '担当者'} から ${toM?.displayName || toM?.name || '新しい担当者'} に引き継ぎました。`,
+            task.progress ? `直近の進捗: ${task.progress}` : null,
+            (task.deliverables?.length ?? 0) > 0 ? `成果物: ${task.deliverables!.length}件` : null,
+            (task.dependsOnIds?.length ?? 0) > 0 ? `前提タスク: ${task.dependsOnIds!.length}件` : null,
+            note.trim() ? `引き継ぎメモ: ${note.trim()}` : null,
+          ]
+            .filter(Boolean)
+            .join('\n')
+          addComment(task.id, summary)
+          toast('タスクを引き継ぎました')
+          setHandoffOpen(false)
+        }}
+      />
 
       {/* Schedule (start date / deadline) edit */}
       <ScheduleModal
@@ -465,6 +495,122 @@ function BlockerModal({
   )
 }
 
+// item 13: タスク引き継ぎ — pick who's handing off and who's taking over,
+// swaps the assignee list, and posts an auto-summarized comment (progress/
+// deliverables/prerequisite-task counts + an optional note) so the new
+// assignee has the full picture without hunting through the task
+function HandoffModal({
+  open,
+  onClose,
+  task,
+  members,
+  onHandoff,
+}: {
+  open: boolean
+  onClose: () => void
+  task: Task | null
+  members: Member[]
+  onHandoff: (fromId: string, toId: string, note: string) => void
+}) {
+  const [fromId, setFromId] = useState('')
+  const [toId, setToId] = useState('')
+  const [note, setNote] = useState('')
+
+  const assignees = (task?.assigneeIds ?? [])
+    .map((id) => members.find((m) => m.id === id))
+    .filter(Boolean) as Member[]
+  const candidates = members.filter((m) => m.id !== fromId && !task?.assigneeIds.includes(m.id))
+
+  const reset = () => {
+    setFromId('')
+    setToId('')
+    setNote('')
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => {
+        reset()
+        onClose()
+      }}
+    >
+      <h2 className="text-base font-semibold">タスクを引き継ぐ</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        進捗・成果物・前提タスクの件数を要約したコメントが自動で残ります。
+      </p>
+      <div className="mt-4 flex flex-col gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">誰から</span>
+          <select
+            value={fromId}
+            onChange={(e) => {
+              setFromId(e.target.value)
+              if (e.target.value === toId) setToId('')
+            }}
+            className="h-9 cursor-pointer rounded-lg border border-border bg-card px-2.5 text-sm outline-none focus:border-primary"
+          >
+            <option value="">選択してください</option>
+            {assignees.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.displayName || m.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">誰へ</span>
+          <select
+            value={toId}
+            onChange={(e) => setToId(e.target.value)}
+            disabled={!fromId}
+            className="h-9 cursor-pointer rounded-lg border border-border bg-card px-2.5 text-sm outline-none focus:border-primary disabled:opacity-50"
+          >
+            <option value="">選択してください</option>
+            {candidates.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.displayName || m.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">引き継ぎメモ（任意）</span>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            placeholder="伝えておきたいことがあれば"
+            className="resize-none rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
+          />
+        </label>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button
+          variant="ghost"
+          className="h-9"
+          onClick={() => {
+            reset()
+            onClose()
+          }}
+        >
+          キャンセル
+        </Button>
+        <Button
+          className="h-9"
+          disabled={!fromId || !toId}
+          onClick={() => {
+            onHandoff(fromId, toId, note)
+            reset()
+          }}
+        >
+          引き継ぐ
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
 function ScheduleModal({
   open,
   onClose,
@@ -544,6 +690,7 @@ function DrawerBody({
   onOpenReviewer,
   onOpenBlocker,
   onClearBlocker,
+  onOpenHandoff,
   onAddDeliverable,
   onRemoveDeliverable,
   onAddComment,
@@ -573,6 +720,7 @@ function DrawerBody({
   onOpenReviewer: () => void
   onOpenBlocker: () => void
   onClearBlocker: () => void
+  onOpenHandoff: () => void
   onAddDeliverable: (label: string, url: string) => void
   onRemoveDeliverable: (id: string) => void
   onAddComment: (text: string) => void
@@ -680,6 +828,14 @@ function DrawerBody({
                     {a.displayName || a.name}
                   </span>
                 ))}
+                {isAdmin && (
+                  <button
+                    onClick={onOpenHandoff}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    引き継ぐ
+                  </button>
+                )}
               </div>
             ) : (
               <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">

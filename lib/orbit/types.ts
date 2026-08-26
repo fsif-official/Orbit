@@ -117,6 +117,9 @@ export interface Member {
   // A 代表-equivalent (the highest-ranked role level) always sees/manages
   // everything regardless of this list.
   projectIds?: string[]
+  // item 14: メンター/サポート担当の設定 — another member assigned to help
+  // this one grow. Set by an admin from the person page's 人材育成 tab.
+  mentorId?: string
 
   // ---- talent-management fields (reserved, not yet wired up) -------------
   // Data shape for the タレントマネジメント epic requested alongside this

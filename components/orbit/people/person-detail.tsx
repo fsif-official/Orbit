@@ -11,7 +11,7 @@ import { EditableTags } from '@/components/orbit/editable-tags'
 import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
 import { formatDeadlineFull } from '@/lib/orbit/utils'
-import { isAdminRole, BASE_ROLE } from '@/lib/orbit/types'
+import { isAdminRole, BASE_ROLE, DIFFICULTY_LABEL } from '@/lib/orbit/types'
 import { AVATAR_PALETTE } from '@/lib/orbit/remote'
 import { cn } from '@/lib/utils'
 import {
@@ -76,6 +76,8 @@ export function PersonDetail({ id }: { id: string }) {
     driveEnabled,
     updateEmail,
     updateNotify,
+    updateMentor,
+    jobRequirements,
     skillOptions,
     addSkillOption,
   } = useOrbit()
@@ -163,6 +165,40 @@ export function PersonDetail({ id }: { id: string }) {
     .sort((a, b) => b[1].length - a[1].length)
   const mentorsFor = (skill: string) =>
     members.filter((m) => m.id !== member.id && m.skills.includes(skill))
+
+  // item 16: スキル獲得経路 — order missing skills easiest-first (average
+  // difficulty of the tasks that demand them), as a suggested learning order
+  const skillRoadmap = missingSkills
+    .map(([skill, unlocked]) => ({
+      skill,
+      unlocked,
+      avgDifficulty:
+        unlocked.reduce((sum, t) => sum + DIFFICULTY_LABEL.indexOf(t.difficulty), 0) /
+        unlocked.length,
+    }))
+    .sort((a, b) => a.avgDifficulty - b.avgDifficulty)
+
+  // item 15: バディ推薦 — other members whose skills cover this member's
+  // current gaps, so the pair together can take on more open work than
+  // either alone
+  const buddyCandidates = members
+    .filter((m) => m.id !== member.id)
+    .map((m) => ({
+      member: m,
+      covers: missingSkills.filter(([skill]) => m.skills.includes(skill)).map(([skill]) => skill),
+    }))
+    .filter((c) => c.covers.length > 0)
+    .sort((a, b) => b.covers.length - a.covers.length)
+    .slice(0, 3)
+
+  // item 14: メンター/サポート担当
+  const mentor = member.mentorId ? members.find((m) => m.id === member.mentorId) : undefined
+
+  // item 17: ポジション要件 — this member's role's required skills vs what
+  // they already have
+  const positionRequirements = jobRequirements[member.role] ?? []
+  const positionHas = positionRequirements.filter((s) => member.skills.includes(s))
+  const positionMissing = positionRequirements.filter((s) => !member.skills.includes(s))
 
   // 所属プロジェクト: owner, explicitly-assigned member, or assigned to one
   // of the project's tasks — same "who's on this project" definition the
@@ -323,7 +359,7 @@ export function PersonDetail({ id }: { id: string }) {
         {(
           [
             ['overview', 'Overview'],
-            ...(isSelf ? [['growth', '人材育成']] : []),
+            ...(isSelf || isAdmin ? [['growth', '人材育成']] : []),
             ['calendar', 'Calendar'],
           ] as [Tab, string][]
         ).map(([key, label]) => (
@@ -402,6 +438,129 @@ export function PersonDetail({ id }: { id: string }) {
               </ul>
             )}
           </div>
+
+          {/* メンター/サポート担当 (item 14) */}
+          <div className="rounded-xl border border-border bg-card p-4">
+            <SectionLabel>メンター / サポート担当</SectionLabel>
+            <p className="mt-1 text-xs text-muted-foreground">
+              成長をサポートする担当者です。
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              {mentor ? (
+                <button
+                  onClick={() => go({ name: 'person', id: mentor.id })}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm hover:bg-secondary"
+                >
+                  <Avatar member={mentor} size={24} />
+                  {mentor.displayName || mentor.name}
+                </button>
+              ) : (
+                <span className="text-sm text-muted-foreground">未設定</span>
+              )}
+              {isAdmin && (
+                <select
+                  value={member.mentorId ?? ''}
+                  onChange={(e) => updateMentor(member.id, e.target.value || null)}
+                  className="h-8 cursor-pointer rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary"
+                >
+                  <option value="">（未設定）</option>
+                  {members
+                    .filter((m) => m.id !== member.id)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.displayName || m.name}
+                      </option>
+                    ))}
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* バディ候補 (item 15) */}
+          {buddyCandidates.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <SectionLabel>バディ候補</SectionLabel>
+              <p className="mt-1 text-xs text-muted-foreground">
+                足りないスキルを補い合える組み合わせです。2人でチームを組むとカバーできる領域が広がります。
+              </p>
+              <ul className="mt-3 flex flex-col gap-2">
+                {buddyCandidates.map(({ member: m, covers }) => (
+                  <li
+                    key={m.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-secondary/30 p-2.5"
+                  >
+                    <button
+                      onClick={() => go({ name: 'person', id: m.id })}
+                      className="flex items-center gap-2 text-sm hover:underline"
+                    >
+                      <Avatar member={m} size={22} />
+                      {m.displayName || m.name}
+                    </button>
+                    <span className="text-xs text-muted-foreground">
+                      カバーできるスキル：{covers.join('、')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* ポジション要件 (item 17) */}
+          {positionRequirements.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <SectionLabel>ポジション要件（{member.role}）</SectionLabel>
+              <p className="mt-1 text-xs text-muted-foreground">
+                この役職に求められるスキルと、現在の保有状況の比較です。
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {positionHas.map((s) => (
+                  <span
+                    key={s}
+                    className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/5 px-1.5 py-0.5 text-xs font-medium"
+                  >
+                    <Check className="size-3 text-primary" strokeWidth={3} />
+                    {s}
+                  </span>
+                ))}
+                {positionMissing.map((s) => (
+                  <span
+                    key={s}
+                    className="rounded-md border border-dashed border-border-strong px-1.5 py-0.5 text-xs text-muted-foreground"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+              {positionMissing.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  点線は未取得のスキルです（{positionMissing.length}件）。
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 学習ロードマップ (item 16) */}
+          {skillRoadmap.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <SectionLabel>学習ロードマップ</SectionLabel>
+              <p className="mt-1 text-xs text-muted-foreground">
+                求められている難易度が低いものから順に並べています。ここから着手するのがおすすめです。
+              </p>
+              <ol className="mt-3 flex flex-col gap-2">
+                {skillRoadmap.map(({ skill, unlocked }, i) => (
+                  <li key={skill} className="flex items-center gap-2.5 text-sm">
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-secondary text-[11px] font-semibold text-muted-foreground">
+                      {i + 1}
+                    </span>
+                    <span className="font-medium">{skill}</span>
+                    <span className="text-xs text-muted-foreground">
+                      （目安：{DIFFICULTY_LABEL[Math.round(unlocked.reduce((s, t) => s + DIFFICULTY_LABEL.indexOf(t.difficulty), 0) / unlocked.length)]}）
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
         </div>
       )}
 

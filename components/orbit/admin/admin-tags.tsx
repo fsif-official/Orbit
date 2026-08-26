@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { Tag, SectionLabel } from '@/components/orbit/primitives'
-import { ADMIN_SECTIONS, DEFAULT_NON_TOP_SECTIONS } from '@/lib/orbit/types'
+import { ADMIN_SECTIONS, DEFAULT_NON_TOP_SECTIONS, BASE_ROLE } from '@/lib/orbit/types'
 import type { AdminSection } from '@/lib/orbit/types'
 import { Plus, Check } from 'lucide-react'
 
@@ -25,9 +25,13 @@ export function AdminTags() {
     removeRoleLevel,
     rolePermissions,
     setRolePermissions,
+    jobRequirements,
+    setJobRequirements,
   } = useOrbit()
   // the top (last) role level always has full access — nothing to configure
   const nonTopLevels = roleLevels.slice(0, -1)
+  // item 17: ポジション要件 — every role, including 一般, has a position
+  const jobTypes = [BASE_ROLE, ...roleLevels]
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
@@ -61,6 +65,24 @@ export function AdminTags() {
             Membersの役職選択に使え、レベルを削除するとそれを持っていたメンバーは
             自動的に「一般」に戻ります。「一般」以外のレベルはすべて管理者画面へのアクセス権を持ちます。
           </p>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-lg border border-border bg-card p-4">
+        <SectionLabel>ポジション要件</SectionLabel>
+        <p className="mt-1 text-xs text-muted-foreground">
+          役職ごとに求めるスキルを設定します。個人ページの人材育成タブで、本人の現在のスキルとの比較が表示されます。
+        </p>
+        <div className="mt-4 flex flex-col gap-4">
+          {jobTypes.map((role) => (
+            <JobRequirementsRow
+              key={role}
+              role={role}
+              skills={jobRequirements[role] ?? []}
+              options={skillOptions}
+              onChange={(next) => setJobRequirements(role, next)}
+            />
+          ))}
         </div>
       </div>
 
@@ -122,6 +144,52 @@ function RolePermissionRow({
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function JobRequirementsRow({
+  role,
+  skills,
+  options,
+  onChange,
+}: {
+  role: string
+  skills: string[]
+  options: string[]
+  onChange: (next: string[]) => void
+}) {
+  const toggle = (skill: string) => {
+    onChange(skills.includes(skill) ? skills.filter((s) => s !== skill) : [...skills, skill])
+  }
+  return (
+    <div>
+      <div className="text-sm font-medium">{role}</div>
+      {options.length === 0 ? (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          先に「要求スキル」の選択肢を追加してください。
+        </p>
+      ) : (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {options.map((s) => {
+            const checked = skills.includes(s)
+            return (
+              <button
+                key={s}
+                onClick={() => toggle(s)}
+                className={`flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
+                  checked
+                    ? 'border-primary/30 bg-primary-muted text-accent-foreground'
+                    : 'border-border text-muted-foreground hover:bg-secondary'
+                }`}
+              >
+                {checked && <Check className="size-3" strokeWidth={3} />}
+                {s}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

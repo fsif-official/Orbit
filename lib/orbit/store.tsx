@@ -138,6 +138,9 @@ interface OrbitContextValue extends OrbitState {
   removeTaskSetTemplate: (templateId: string) => void
   applyTaskSetTemplate: (templateId: string, projectId: string) => void
   recurringRules: RecurringTaskRule[]
+  // item 17: ポジション要件 — jobType (role level string) -> required skills
+  jobRequirements: Record<string, string[]>
+  setJobRequirements: (jobType: string, skills: string[]) => void
   addRecurringRule: (rule: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => void
   removeRecurringRule: (ruleId: string) => void
   toggleRecurringRule: (ruleId: string) => void
@@ -178,6 +181,7 @@ interface OrbitContextValue extends OrbitState {
   adminPendingTasks: Task[]
   updateRole: (memberId: string, role: Role) => void
   updateReportsTo: (memberId: string, reportsToId: string | null) => void
+  updateMentor: (memberId: string, mentorId: string | null) => void
   updateDisplayName: (memberId: string, displayName: string) => void
   toggleUnavailableDate: (memberId: string, date: string) => void
   updateSchedule: (id: string, startDate: string | null, deadline: string | null) => void
@@ -213,6 +217,10 @@ const TEMPLATES_STORAGE_KEY = 'orbit-project-templates'
 const ROLE_PERMS_STORAGE_KEY = 'orbit-role-permissions'
 const TASK_SET_TEMPLATES_STORAGE_KEY = 'orbit-task-set-templates'
 const RECURRING_RULES_STORAGE_KEY = 'orbit-recurring-rules'
+// item 17: ポジション要件 — local-only for now (not yet synced via the
+// optional Settings sheet, same starting point the other option pools had
+// before that sync existed)
+const JOB_REQUIREMENTS_STORAGE_KEY = 'orbit-job-requirements'
 
 function loadState(): Partial<OrbitState> | null {
   if (typeof window === 'undefined') return null
@@ -284,6 +292,16 @@ function loadRecurringRules(): RecurringTaskRule[] {
   }
 }
 
+function loadJobRequirements(): Record<string, string[]> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(JOB_REQUIREMENTS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
 function uniq(list: string[]): string[] {
   return Array.from(new Set(list.map((s) => s.trim()).filter(Boolean)))
 }
@@ -315,6 +333,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const [projectTemplates, setProjectTemplates] = useState<Record<string, ProjectTemplateTask[]>>({})
   const [taskSetTemplates, setTaskSetTemplates] = useState<TaskSetTemplate[]>([])
   const [recurringRules, setRecurringRules] = useState<RecurringTaskRule[]>([])
+  // item 17: ポジション要件 — jobType (role level string) -> required skills
+  const [jobRequirements, setJobRequirementsState] = useState<Record<string, string[]>>({})
   const [onboardedIds, setOnboardedIds] = useState<Set<string>>(new Set())
   const [skillCertifiedEvent, setSkillCertifiedEvent] = useState<{
     memberName: string
@@ -363,6 +383,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       setRecurringRules(loadRecurringRules())
     }
     setOnboardedIds(new Set(loadOnboardedIds()))
+    setJobRequirementsState(loadJobRequirements())
     setHydrated(true)
   }, [])
 
@@ -609,6 +630,21 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
   }, [recurringRules, hydrated])
+
+  // item 17: not synced via the optional Settings sheet — always local,
+  // regardless of isSettingsConfigured (see JOB_REQUIREMENTS_STORAGE_KEY)
+  useEffect(() => {
+    if (!hydrated) return
+    try {
+      window.localStorage.setItem(JOB_REQUIREMENTS_STORAGE_KEY, JSON.stringify(jobRequirements))
+    } catch {
+      /* ignore */
+    }
+  }, [jobRequirements, hydrated])
+
+  const setJobRequirements = useCallback((jobType: string, skills: string[]) => {
+    setJobRequirementsState((prev) => ({ ...prev, [jobType]: skills }))
+  }, [])
 
   const login = useCallback((userId: string) => {
     setCurrentUserId(userId)
@@ -1359,6 +1395,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  // item 14: メンター/サポート担当の設定
+  const updateMentor = useCallback(
+    (memberId: string, mentorId: string | null) => {
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, mentorId: mentorId ?? undefined } : m)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateMentor(memberId, mentorId))
+    },
+    [runRemote],
+  )
+
   const updateDisplayName = useCallback(
     (memberId: string, displayName: string) => {
       const trimmed = displayName.trim()
@@ -1834,6 +1881,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     removeTaskSetTemplate,
     applyTaskSetTemplate,
     recurringRules,
+    jobRequirements,
+    setJobRequirements,
     addRecurringRule,
     removeRecurringRule,
     toggleRecurringRule,
@@ -1869,6 +1918,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     adminPendingTasks,
     updateRole,
     updateReportsTo,
+    updateMentor,
     updateDisplayName,
     toggleUnavailableDate,
     updateSchedule,

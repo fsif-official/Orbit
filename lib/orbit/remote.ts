@@ -190,6 +190,7 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
     displayName: r.display_name || undefined,
     unavailableDates: splitTags(r.unavailable_dates),
     reportsToId: r.reports_to_id || undefined,
+    mentorId: r.mentor_id || undefined,
   }
 }
 
@@ -419,6 +420,8 @@ export const remoteApi = {
   updateRole: (memberId: string, role: Role) => postToGas('updateRole', { memberId, role }),
   updateReportsTo: (memberId: string, reportsToId: string | null) =>
     postToGas('updateReportsTo', { memberId, reportsToId }),
+  updateMentor: (memberId: string, mentorId: string | null) =>
+    postToGas('updateMentor', { memberId, mentorId }),
   updateDisplayName: (memberId: string, displayName: string) =>
     postToGas('updateDisplayName', { memberId, displayName }),
   updateUnavailableDates: (memberId: string, dates: string[]) =>

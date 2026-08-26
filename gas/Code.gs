@@ -98,6 +98,9 @@ function doPost(e) {
       case 'updateReportsTo':
         result = updateMemberFields(body.memberId, { reports_to_id: body.reportsToId || '' })
         break
+      case 'updateMentor':
+        result = updateMemberFields(body.memberId, { mentor_id: body.mentorId || '' })
+        break
       case 'updateDisplayName':
         result = updateMemberFields(body.memberId, { display_name: body.displayName || '' })
         break
