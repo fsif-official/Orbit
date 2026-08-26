@@ -105,6 +105,9 @@ interface OrbitContextValue extends OrbitState {
   driveEnabled: boolean
   remoteStatus: RemoteStatus
   remoteError: string | null
+  // true once every configured remote source (spreadsheet + optional
+  // Settings sheet) has resolved or given up — see store.tsx's dataReady
+  dataReady: boolean
   skillOptions: string[]
   categoryOptions: string[]
   addSkillOption: (name: string) => void
@@ -275,14 +278,24 @@ function uniq(list: string[]): string[] {
 
 export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [tasks, setTasks] = useState<Task[]>(SEED_TASKS)
-  const [members, setMembers] = useState<Member[]>(MEMBERS)
-  const [projects, setProjects] = useState<Project[]>(PROJECTS)
+  // when a remote spreadsheet is configured, the local seed data is never
+  // actually correct (wrong ids, wrong org) — starting from it anyway just
+  // means every reload briefly shows the wrong members/tasks/projects (and
+  // can resolve currentUserId, a real remote id, to nobody) until the fetch
+  // below replaces it. Start empty instead and let the loading gates in
+  // orbit-app.tsx / admin-screen.tsx cover the wait.
+  const [tasks, setTasks] = useState<Task[]>(isRemoteConfigured ? [] : SEED_TASKS)
+  const [members, setMembers] = useState<Member[]>(isRemoteConfigured ? [] : MEMBERS)
+  const [projects, setProjects] = useState<Project[]>(isRemoteConfigured ? [] : PROJECTS)
   const [inputs, setInputs] = useState<TaskInput[]>(SEED_INPUTS)
   const [mode, setModeState] = useState<Mode>('output')
   const [hydrated, setHydrated] = useState(false)
   const [remoteStatus, setRemoteStatus] = useState<RemoteStatus>('idle')
   const [remoteError, setRemoteError] = useState<string | null>(null)
+  // mirrors remoteStatus but for the separate, optional Settings-sheet
+  // fetch (role levels/permissions/pools) — true immediately when that
+  // sheet isn't configured, so dataReady below doesn't wait on it forever
+  const [settingsReady, setSettingsReady] = useState(!isSettingsConfigured)
   const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS)
   const [categoryOptions, setCategoryOptions] = useState<string[]>(DEFAULT_CATEGORY_OPTIONS)
   const [roleLevels, setRoleLevels] = useState<string[]>(DEFAULT_ROLE_LEVELS)
@@ -376,8 +389,14 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         setTaskSetTemplates(s.taskSetTemplates)
         setRecurringRules(s.recurringRules)
         setRemoteError(null)
+        setSettingsReady(true)
       })
-      .catch(reportRemoteError)
+      .catch((err) => {
+        reportRemoteError(err)
+        // an error still means "stop waiting" — fall back to defaults
+        // rather than blocking dataReady forever
+        setSettingsReady(true)
+      })
   }, [reportRemoteError])
 
   // 定期タスク generation check (item 2) — there's no server-side cron in
@@ -1644,6 +1663,15 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     !onboardedIds.has(currentUser.id)
   )
 
+  // true once every configured remote source has either resolved or given
+  // up (error). Consumers (orbit-app.tsx's Router, admin-screen.tsx) use
+  // this to avoid computing permissions/redirects against the transient
+  // pre-fetch state, where members/roleLevels/rolePermissions can be empty
+  // or still at their defaults.
+  const dataReady =
+    (!isRemoteConfigured || remoteStatus === 'ready' || remoteStatus === 'error') &&
+    settingsReady
+
   const value: OrbitContextValue = {
     currentUserId,
     tasks,
@@ -1659,6 +1687,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     driveEnabled: isDriveConfigured,
     remoteStatus,
     remoteError,
+    dataReady,
     skillOptions,
     categoryOptions,
     addSkillOption,

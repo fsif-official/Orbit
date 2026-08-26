@@ -9,6 +9,7 @@ import { AdminProjects } from './admin-projects'
 import { AdminMembers } from './admin-members'
 import { AdminTags } from './admin-tags'
 import { useOrbit } from '@/lib/orbit/store'
+import { OrbitMark } from '../primitives'
 import { LayoutDashboard, UserPlus, FileClock, FolderPlus, Users, Tags } from 'lucide-react'
 
 type Section = 'dashboard' | 'assignments' | 'approvals' | 'projects' | 'members' | 'tags'
@@ -24,17 +25,34 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
 
 export function AdminScreen({ section }: { section: Section }) {
   const { go } = useNav()
-  const { pendingTasks, visibleAdminSections } = useOrbit()
+  const { pendingTasks, visibleAdminSections, dataReady } = useOrbit()
   const nav = NAV.filter((n) => visibleAdminSections.includes(n.key))
   const allowed = visibleAdminSections.includes(section)
 
   // a scoped admin landing on a section they can't see (stale link, direct
-  // nav) bounces to the dashboard instead of rendering it
+  // nav) bounces to the dashboard instead of rendering it — but only once
+  // dataReady, so this doesn't fire off of a still-empty/default
+  // visibleAdminSections while the spreadsheet fetch is in flight
   useEffect(() => {
-    if (!allowed) {
+    if (dataReady && !allowed) {
       go({ name: 'admin', section: 'dashboard' })
     }
-  }, [allowed, go])
+  }, [dataReady, allowed, go])
+
+  if (!dataReady) {
+    return (
+      <div className="flex min-h-[calc(100vh-3.5rem)] flex-col items-center justify-center gap-3">
+        <OrbitMark size={28} />
+        <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <span className="relative flex size-3">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
+            <span className="relative inline-flex size-3 rounded-full bg-primary" />
+          </span>
+          データを読み込んでいます…
+        </div>
+      </div>
+    )
+  }
 
   if (!allowed) return null
 
