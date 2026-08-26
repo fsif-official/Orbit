@@ -308,6 +308,8 @@ export interface RemoteSettings {
   rolePermissions: Record<string, AdminSection[]>
   taskSetTemplates: TaskSetTemplate[]
   recurringRules: RecurringTaskRule[]
+  // item 17: ポジション要件 — jobType (role level string) -> required skills
+  jobRequirements: Record<string, string[]>
 }
 
 // Reads the optional "Settings" sheet (key,value rows) — see
@@ -345,6 +347,13 @@ export async function fetchSettings(): Promise<RemoteSettings> {
   } catch {
     // malformed JSON in the sheet — fall back to empty rather than throwing
   }
+  let jobRequirements: Record<string, string[]> = {}
+  try {
+    const raw = byKey.get('job_requirements')
+    if (raw) jobRequirements = JSON.parse(raw)
+  } catch {
+    // malformed JSON in the sheet — fall back to empty rather than throwing
+  }
   return {
     skillOptions: splitTags(byKey.get('skill_options')),
     categoryOptions: splitTags(byKey.get('category_options')),
@@ -353,6 +362,7 @@ export async function fetchSettings(): Promise<RemoteSettings> {
     rolePermissions,
     taskSetTemplates,
     recurringRules,
+    jobRequirements,
   }
 }
 

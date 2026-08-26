@@ -202,13 +202,14 @@ localStorageにのみ保存され、他の人の画面には反映されませ�
 4. リポジトリの Secrets に `SETTINGS_CSV` としてこのURLを追加
 
 設定すると、要求スキル・カテゴリ・権限レベル・権限レベルごとの管理画面表示範囲・
-プロジェクトテンプレート・業務テンプレート・定期タスクルールの追加や削除がその場で
-Settingsシートに書き込まれ（`key` 列は `skill_options` / `category_options` /
-`role_levels` / `role_permissions` / `project_templates` / `task_set_templates` /
-`recurring_rules`、`value` 列はカンマ区切り文字列、`role_permissions` /
-`project_templates` / `task_set_templates` / `recurring_rules` のみJSON文字列）、
-次回以降は誰の画面を開いてもそこから読み込まれます。未設定の場合はこれまで通り
-ブラウザごとのlocalStorageにフォールバックし、何も壊れません。
+プロジェクトテンプレート・業務テンプレート・定期タスクルール・ポジション要件の追加や
+削除がその場でSettingsシートに書き込まれ（`key` 列は `skill_options` /
+`category_options` / `role_levels` / `role_permissions` / `project_templates` /
+`task_set_templates` / `recurring_rules` / `job_requirements`、`value` 列はカンマ区切り
+文字列、`role_permissions` / `project_templates` / `task_set_templates` /
+`recurring_rules` / `job_requirements` のみJSON文字列）、次回以降は誰の画面を開いても
+そこから読み込まれます。未設定の場合はこれまで通りブラウザごとのlocalStorageに
+フォールバックし、何も壊れません。
 
 ## 5. 動作確認
 

@@ -217,9 +217,8 @@ const TEMPLATES_STORAGE_KEY = 'orbit-project-templates'
 const ROLE_PERMS_STORAGE_KEY = 'orbit-role-permissions'
 const TASK_SET_TEMPLATES_STORAGE_KEY = 'orbit-task-set-templates'
 const RECURRING_RULES_STORAGE_KEY = 'orbit-recurring-rules'
-// item 17: ポジション要件 — local-only for now (not yet synced via the
-// optional Settings sheet, same starting point the other option pools had
-// before that sync existed)
+// item 17: ポジション要件 — localStorage fallback for when the optional
+// Settings sheet isn't configured, same as the other option pools below
 const JOB_REQUIREMENTS_STORAGE_KEY = 'orbit-job-requirements'
 
 function loadState(): Partial<OrbitState> | null {
@@ -381,9 +380,9 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       setRolePermissionsState(loadRolePermissions())
       setTaskSetTemplates(loadTaskSetTemplates())
       setRecurringRules(loadRecurringRules())
+      setJobRequirementsState(loadJobRequirements())
     }
     setOnboardedIds(new Set(loadOnboardedIds()))
-    setJobRequirementsState(loadJobRequirements())
     setHydrated(true)
   }, [])
 
@@ -421,6 +420,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         setRolePermissionsState(s.rolePermissions)
         setTaskSetTemplates(s.taskSetTemplates)
         setRecurringRules(s.recurringRules)
+        setJobRequirementsState(s.jobRequirements)
         setRemoteError(null)
         setSettingsReady(true)
       })
@@ -463,6 +463,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           setRolePermissionsState(settings.rolePermissions)
           setTaskSetTemplates(settings.taskSetTemplates)
           setRecurringRules(settings.recurringRules)
+          setJobRequirementsState(settings.jobRequirements)
         }
         setRemoteError(null)
       })
@@ -631,10 +632,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     }
   }, [recurringRules, hydrated])
 
-  // item 17: not synced via the optional Settings sheet — always local,
-  // regardless of isSettingsConfigured (see JOB_REQUIREMENTS_STORAGE_KEY)
   useEffect(() => {
-    if (!hydrated) return
+    if (!hydrated || isSettingsConfigured) return
     try {
       window.localStorage.setItem(JOB_REQUIREMENTS_STORAGE_KEY, JSON.stringify(jobRequirements))
     } catch {
@@ -642,9 +641,19 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     }
   }, [jobRequirements, hydrated])
 
-  const setJobRequirements = useCallback((jobType: string, skills: string[]) => {
-    setJobRequirementsState((prev) => ({ ...prev, [jobType]: skills }))
-  }, [])
+  // item 17: ポジション要件 — synced via the optional Settings sheet
+  // (job_requirements key), same pattern as role_permissions/project_templates
+  const setJobRequirements = useCallback(
+    (jobType: string, skills: string[]) => {
+      setJobRequirementsState((prev) => {
+        const next = { ...prev, [jobType]: skills }
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('job_requirements', JSON.stringify(next)))
+        return next
+      })
+    },
+    [runRemote],
+  )
 
   const login = useCallback((userId: string) => {
     setCurrentUserId(userId)
