@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { useNav } from '@/lib/orbit/nav'
 import { AdminDashboard } from './admin-dashboard'
 import { AdminAssignments } from './admin-assignments'
@@ -23,7 +24,19 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
 
 export function AdminScreen({ section }: { section: Section }) {
   const { go } = useNav()
-  const { pendingTasks } = useOrbit()
+  const { pendingTasks, visibleAdminSections } = useOrbit()
+  const nav = NAV.filter((n) => visibleAdminSections.includes(n.key))
+  const allowed = visibleAdminSections.includes(section)
+
+  // a scoped admin landing on a section they can't see (stale link, direct
+  // nav) bounces to the dashboard instead of rendering it
+  useEffect(() => {
+    if (!allowed) {
+      go({ name: 'admin', section: 'dashboard' })
+    }
+  }, [allowed, go])
+
+  if (!allowed) return null
 
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)]">
@@ -35,7 +48,7 @@ export function AdminScreen({ section }: { section: Section }) {
           </div>
         </div>
         <nav className="space-y-0.5 px-2">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <button
               key={n.key}
               onClick={() => go({ name: 'admin', section: n.key })}
@@ -60,7 +73,7 @@ export function AdminScreen({ section }: { section: Section }) {
       {/* Mobile tabs */}
       <div className="w-full">
         <div className="flex gap-1 overflow-x-auto border-b border-border bg-card px-4 py-2 md:hidden">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <button
               key={n.key}
               onClick={() => go({ name: 'admin', section: n.key })}

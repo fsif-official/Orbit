@@ -45,6 +45,7 @@ jobs:
           NEXT_PUBLIC_TASKS_CSV: ${{ secrets.TASKS_CSV }}
           NEXT_PUBLIC_GAS_URL: ${{ secrets.CSV_GAS }}
           NEXT_PUBLIC_DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          NEXT_PUBLIC_SETTINGS_CSV: ${{ secrets.SETTINGS_CSV }}
         run: pnpm build
 
       - name: Upload artifact

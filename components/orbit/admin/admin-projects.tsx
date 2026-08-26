@@ -4,23 +4,27 @@ import { useMemo, useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useToast } from '@/components/orbit/toast'
 import { Avatar, SectionLabel, Tag } from '@/components/orbit/primitives'
+import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
 import { DEPARTMENTS, DIFFICULTY_LABEL, PRIORITIES } from '@/lib/orbit/types'
-import type { Department, Difficulty, Priority, ProjectTemplateTask } from '@/lib/orbit/types'
+import type { Department, Difficulty, Priority, Project, ProjectTemplateTask } from '@/lib/orbit/types'
 import { Plus, Trash2 } from 'lucide-react'
 
 export function AdminProjects() {
   const {
-    projects,
-    visibleTasks,
+    adminProjects: projects,
+    adminTasks: visibleTasks,
     members,
     addProject,
+    removeProject,
     projectTypes,
     projectTemplates,
     setProjectTemplateTasks,
     removeProjectType,
+    isFullAdmin,
   } = useOrbit()
   const toast = useToast()
+  const [removing, setRemoving] = useState<Project | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [type, setType] = useState('')
@@ -52,52 +56,56 @@ export function AdminProjects() {
     <div className="mx-auto max-w-5xl px-6 py-8">
       <h1 className="text-xl font-semibold tracking-tight">Projects</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        新しいプロジェクトを追加します。種類を選ぶと、その種類のテンプレートタスクが自動で作成されます。
+        {isFullAdmin
+          ? '新しいプロジェクトを追加します。種類を選ぶと、その種類のテンプレートタスクが自動で作成されます。'
+          : '担当プロジェクトの一覧です。新規追加やテンプレート管理は代表など上位の管理者のみ行えます。'}
       </p>
 
-      <div className="mt-6 rounded-lg border border-border bg-card p-4">
-        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr]">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              プロジェクト名
-            </label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="例：新歓イベント2027"
-              className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
-            />
+      {isFullAdmin && (
+        <div className="mt-6 rounded-lg border border-border bg-card p-4">
+          <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr]">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                プロジェクト名
+              </label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="例：新歓イベント2027"
+                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">概要</label>
+              <input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="任意"
+                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">種類</label>
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="h-9 w-full cursor-pointer rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+              >
+                <option value="">未設定</option>
+                {projectTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">概要</label>
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="任意"
-              className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">種類</label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="h-9 w-full cursor-pointer rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
-            >
-              <option value="">未設定</option>
-              {projectTypes.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Button className="mt-3 h-9" disabled={!name.trim()} onClick={handleCreate}>
+            <Plus className="size-4" />
+            プロジェクトを追加
+          </Button>
         </div>
-        <Button className="mt-3 h-9" disabled={!name.trim()} onClick={handleCreate}>
-          <Plus className="size-4" />
-          プロジェクトを追加
-        </Button>
-      </div>
+      )}
 
       <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card">
         <table className="w-full text-sm">
@@ -108,11 +116,13 @@ export function AdminProjects() {
               <th className="px-4 py-2.5 font-medium">概要</th>
               <th className="px-4 py-2.5 font-medium">担当者</th>
               <th className="px-4 py-2.5 font-medium">タスク数</th>
+              {isFullAdmin && <th className="px-4 py-2.5 font-medium" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {projects.map((p) => {
               const pm = projectMembers(p.id)
+              const taskCount = visibleTasks.filter((t) => t.projectId === p.id).length
               return (
                 <tr key={p.id}>
                   <td className="px-4 py-3 font-medium">{p.name}</td>
@@ -133,9 +143,18 @@ export function AdminProjects() {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 tabular-nums text-muted-foreground">
-                    {visibleTasks.filter((t) => t.projectId === p.id).length}
-                  </td>
+                  <td className="px-4 py-3 tabular-nums text-muted-foreground">{taskCount}</td>
+                  {isFullAdmin && (
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setRemoving(p)}
+                        className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                      >
+                        <Trash2 className="size-3.5" />
+                        削除
+                      </button>
+                    </td>
+                  )}
                 </tr>
               )
             })}
@@ -144,6 +163,7 @@ export function AdminProjects() {
       </div>
 
       {/* Project-type templates */}
+      {isFullAdmin && (
       <div className="mt-10">
         <h2 className="text-base font-semibold">プロジェクトの種類 / テンプレートタスク</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -193,6 +213,34 @@ export function AdminProjects() {
           )}
         </div>
       </div>
+      )}
+
+      <Modal open={!!removing} onClose={() => setRemoving(null)}>
+        <h2 className="text-base font-semibold">「{removing?.name}」を削除しますか？</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          このプロジェクトに紐づくタスク（
+          {removing ? visibleTasks.filter((t) => t.projectId === removing.id).length : 0}
+          件）もすべて削除されます。この操作は取り消せません。
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" className="h-9" onClick={() => setRemoving(null)}>
+            キャンセル
+          </Button>
+          <Button
+            variant="destructive"
+            className="h-9"
+            onClick={() => {
+              if (removing) {
+                removeProject(removing.id)
+                toast(`「${removing.name}」を削除しました`)
+              }
+              setRemoving(null)
+            }}
+          >
+            削除する
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }

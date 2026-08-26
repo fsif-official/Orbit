@@ -1,4 +1,4 @@
-export type TaskStatus = 'todo' | 'progress' | 'review' | 'fix' | 'done'
+export type TaskStatus = 'todo' | 'progress' | 'support' | 'review' | 'fix' | 'done'
 
 export type Difficulty = '新人歓迎' | '少し経験必要' | '経験者向け'
 
@@ -14,6 +14,29 @@ export const BASE_ROLE = '一般'
 export function isAdminRole(role: Role): boolean {
   return role !== BASE_ROLE
 }
+
+// admin-screen sidebar sections — used by store.tsx's rolePermissions to
+// gate which sections each non-top admin role level can see (Admin → Tags)
+export type AdminSection = 'dashboard' | 'assignments' | 'approvals' | 'projects' | 'members' | 'tags'
+
+export const ADMIN_SECTIONS: { key: AdminSection; label: string }[] = [
+  { key: 'dashboard', label: 'Dashboard' },
+  { key: 'approvals', label: 'Approvals' },
+  { key: 'assignments', label: 'Assignments' },
+  { key: 'projects', label: 'Projects' },
+  { key: 'members', label: 'Members' },
+  { key: 'tags', label: 'Tags' },
+]
+
+// Members/Tags manage org-wide config (roles, notification routing, the
+// shared skill/category/role-level pools) — not "this project's" scope, so
+// a non-top admin role doesn't get them unless explicitly granted.
+export const DEFAULT_NON_TOP_SECTIONS: AdminSection[] = [
+  'dashboard',
+  'approvals',
+  'assignments',
+  'projects',
+]
 
 // visibility gate for 幹部 (leadership)-only tasks — see Task.visibility
 export function canSeeExecTasks(role: Role): boolean {
@@ -68,6 +91,9 @@ export interface Member {
   judgment: string[]
   facts: { label: string; count: number }[]
   skills: string[]
+  // one or more addresses, comma-separated (MailApp/CalendarApp on the GAS
+  // side accept a comma-joined "to" string natively, so no backend changes
+  // are needed to support multiple notification recipients per member)
   email?: string
   // whether this member should receive an email when a new task is
   // registered and needs approval — see store.tsx's notifyRecipients
@@ -80,6 +106,120 @@ export interface Member {
   // should be routed to (e.g. a 班長's 事業部長/代表) — falls back to the
   // default 代表 recipients when unset, see store.tsx's notifyTargetsFor
   reportsToId?: string
+  // projects this member is scoped to manage as an admin (design doc §3).
+  // Only meaningful for a non-top admin role — see store.tsx's isFullAdmin.
+  // A 代表-equivalent (the highest-ranked role level) always sees/manages
+  // everything regardless of this list.
+  projectIds?: string[]
+
+  // ---- talent-management fields (reserved, not yet wired up) -------------
+  // Data shape for the タレントマネジメント epic requested alongside this
+  // batch (人材DB／スキル管理／人材検索／育成・キャリア／分析ダッシュボード).
+  // Scoped down for now to "prepare the full data structure only" — none of
+  // this is read/written by store.tsx, remote.ts, or gas/Code.gs yet, and
+  // there's no UI for it. Building the actual screens (人材検索フィルタ,
+  // スキルマップ, 育成計画/1on1エディタ, 人員分析ダッシュボード, etc.) is a
+  // separate, later piece of work. See TalentSearchFilters/
+  // JobTypeSkillRequirement below for the parts that aren't per-member.
+
+  // 人材検索: filterable attributes
+  yearsOfExperience?: number
+  hasManagementExperience?: boolean
+  // desired growth areas/skills ("成長したい領域やスキル"), distinct from
+  // Will (what they want to do) and skills (what they already have)
+  desiredAreas?: string[]
+
+  // 人材データベース
+  careerHistory?: CareerHistoryEntry[]
+  qualifications?: Qualification[]
+  evaluationHistory?: EvaluationRecord[]
+  transferHistory?: TransferRecord[]
+
+  // スキル管理: per-skill proficiency level and role-relevant competencies,
+  // in addition to the existing flat `skills` list
+  skillLevels?: SkillLevel[]
+  competencies?: Competency[]
+
+  // 育成・キャリア
+  careerAspiration?: string
+  desiredFutureRole?: string
+  careerPlan?: string
+  trainingHistory?: TrainingRecord[]
+  developmentPlan?: DevelopmentPlanEntry[]
+  oneOnOnes?: OneOnOneRecord[]
+}
+
+export interface CareerHistoryEntry {
+  id: string
+  startDate: string // YYYY-MM-DD
+  endDate?: string // absent = current
+  affiliation: string
+  role: string
+  description?: string
+}
+
+export interface Qualification {
+  id: string
+  name: string
+  acquiredDate?: string // YYYY-MM-DD
+  issuer?: string
+}
+
+export interface EvaluationRecord {
+  id: string
+  date: string // YYYY-MM-DD
+  evaluatorId: string
+  rating: string
+  comment?: string
+}
+
+export interface TransferRecord {
+  id: string
+  date: string // YYYY-MM-DD
+  fromAffiliation: string
+  toAffiliation: string
+  reason?: string
+}
+
+// 1 (beginner) – 5 (expert), matching the common skill-map convention
+export type SkillLevelValue = 1 | 2 | 3 | 4 | 5
+
+export interface SkillLevel {
+  skill: string
+  level: SkillLevelValue
+}
+
+export interface Competency {
+  name: string
+  level: SkillLevelValue
+}
+
+export interface TrainingRecord {
+  id: string
+  name: string
+  date: string // YYYY-MM-DD
+  provider?: string
+}
+
+export interface DevelopmentPlanEntry {
+  id: string
+  goal: string
+  targetDate?: string // YYYY-MM-DD
+  status: 'not_started' | 'in_progress' | 'done'
+}
+
+export interface OneOnOneRecord {
+  id: string
+  date: string // YYYY-MM-DD
+  withId: string // the other participant (usually reportsToId's member)
+  notes: string
+}
+
+// スキル管理: 職種ごとの必要スキルとの比較 — an org-wide config (not
+// per-member), mapping a job type to the skills/levels it expects.
+export interface JobTypeSkillRequirement {
+  jobType: string
+  requiredSkills: { skill: string; level: SkillLevelValue }[]
 }
 
 export interface Project {
@@ -160,6 +300,7 @@ export interface ParsedTask {
 export const STATUS_ORDER: TaskStatus[] = [
   'todo',
   'progress',
+  'support',
   'review',
   'fix',
   'done',
@@ -168,6 +309,7 @@ export const STATUS_ORDER: TaskStatus[] = [
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   todo: '未着手',
   progress: '進行中',
+  support: 'サポート必要',
   review: '確認待ち',
   fix: '修正中',
   done: '完了',
@@ -176,6 +318,7 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
 export const STATUS_COLOR: Record<TaskStatus, string> = {
   todo: 'var(--status-todo)',
   progress: 'var(--status-progress)',
+  support: 'var(--status-support)',
   review: 'var(--status-review)',
   fix: 'var(--status-fix)',
   done: 'var(--status-done)',

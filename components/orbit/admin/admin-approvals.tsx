@@ -5,10 +5,18 @@ import { useToast } from '@/components/orbit/toast'
 import { Avatar, DifficultyBadge, ProjectTag, Tag } from '@/components/orbit/primitives'
 import { Button } from '@/components/ui/button'
 import { findSimilarTasks, formatDeadline } from '@/lib/orbit/utils'
-import { Check, FileClock, TriangleAlert } from 'lucide-react'
+import { Check, FileClock, ShieldCheck, TriangleAlert } from 'lucide-react'
 
 export function AdminApprovals() {
-  const { pendingTasks, visibleTasks, getProject, getMember, approveTask } = useOrbit()
+  const {
+    adminPendingTasks: pendingTasks,
+    adminTasks: visibleTasks,
+    getProject,
+    getMember,
+    approveTask,
+    currentUser,
+    isFullAdmin,
+  } = useOrbit()
   const toast = useToast()
 
   return (
@@ -27,6 +35,10 @@ export function AdminApprovals() {
         <div className="mt-6 flex flex-col gap-3">
           {pendingTasks.map((t) => {
             const creator = getMember(t.createdById ?? null)
+            const approver = creator?.reportsToId ? getMember(creator.reportsToId) : undefined
+            // 組織体系(reports_to_id)で承認担当が決まっていれば本人のみ承認可能。
+            // 未設定なら従来通り管理者なら誰でも承認できる。
+            const canApprove = isFullAdmin || !approver || approver.id === currentUser?.id
             const similar = findSimilarTasks(t, visibleTasks)
             return (
               <div key={t.id} className="rounded-lg border border-border bg-card p-4">
@@ -49,9 +61,17 @@ export function AdminApprovals() {
                       ))}
                     </div>
                     {creator && (
-                      <div className="mt-2.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Avatar member={creator} size={18} />
-                        {creator.displayName || creator.name} が登録
+                      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1.5">
+                          <Avatar member={creator} size={18} />
+                          {creator.displayName || creator.name} が登録
+                        </span>
+                        {approver && (
+                          <span className="flex items-center gap-1 text-accent-foreground">
+                            <ShieldCheck className="size-3.5" />
+                            承認担当：{approver.displayName || approver.name}
+                          </span>
+                        )}
                       </div>
                     )}
                     {similar.length > 0 && (
@@ -70,17 +90,23 @@ export function AdminApprovals() {
                       </div>
                     )}
                   </div>
-                  <Button
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => {
-                      approveTask(t.id)
-                      toast(`「${t.name}」を承認しました`)
-                    }}
-                  >
-                    <Check className="size-4" />
-                    承認する
-                  </Button>
+                  {canApprove ? (
+                    <Button
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => {
+                        approveTask(t.id)
+                        toast(`「${t.name}」を承認しました`)
+                      }}
+                    >
+                      <Check className="size-4" />
+                      承認する
+                    </Button>
+                  ) : (
+                    <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                      {approver?.displayName || approver?.name}のみ承認できます
+                    </span>
+                  )}
                 </div>
               </div>
             )

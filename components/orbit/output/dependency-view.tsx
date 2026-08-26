@@ -6,16 +6,37 @@
 // このワークが必要"). Layout is a simple leveled DAG: a task's level is
 // 1 + max(level of its prerequisites among the visible task set); tasks
 // with no (visible) prerequisites sit at level 0.
-import { useMemo } from 'react'
+//
+// Cards also support connecting two tasks by drag & drop, or by a
+// long-press-then-drag gesture (touch-friendly): press and hold, or start
+// dragging past a small threshold, and a live line follows the pointer
+// until it's released over another card — the pressed card becomes a
+// prerequisite of the one dropped on. A quick tap (no hold, no drag) still
+// opens the task drawer as before.
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { useOrbit } from '@/lib/orbit/store'
+import { useToast } from '@/components/orbit/toast'
 import type { Task } from '@/lib/orbit/types'
 import { STATUS_COLOR, STATUS_LABEL } from '@/lib/orbit/types'
 import { DifficultyBadge } from '../primitives'
-import { GitBranch } from 'lucide-react'
+import { GitBranch, GripVertical } from 'lucide-react'
 
 const CARD_W = 220
 const CARD_H = 68
 const COL_GAP = 72
 const ROW_GAP = 16
+const LONG_PRESS_MS = 450
+const DRAG_THRESHOLD = 6
+
+interface PressState {
+  taskId: string
+  startX: number
+  startY: number
+  lastX: number
+  lastY: number
+  dragging: boolean
+  timer: number | null
+}
 
 export function DependencyView({
   tasks,
@@ -24,7 +45,15 @@ export function DependencyView({
   tasks: Task[]
   onOpenTask: (id: string) => void
 }) {
+  const { updateDependsOn } = useOrbit()
+  const toast = useToast()
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const pressRef = useRef<PressState | null>(null)
+  const [drag, setDrag] = useState<{ fromId: string; x: number; y: number } | null>(null)
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null)
+
   const taskIds = useMemo(() => new Set(tasks.map((t) => t.id)), [tasks])
+  const tasksById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks])
 
   const levels = useMemo(() => {
     const levelOf = new Map<string, number>()
@@ -91,6 +120,124 @@ export function DependencyView({
 
   const hasAnyDependency = edges.length > 0
 
+  // does `fromId` already (directly or transitively) depend on `targetId`?
+  // used to refuse a connection that would close a cycle.
+  const dependsOnTransitively = useCallback(
+    (fromId: string, targetId: string, seen: Set<string> = new Set()): boolean => {
+      if (seen.has(fromId)) return false
+      seen.add(fromId)
+      const t = tasksById.get(fromId)
+      if (!t) return false
+      const deps = t.dependsOnIds ?? []
+      if (deps.includes(targetId)) return true
+      return deps.some((d) => dependsOnTransitively(d, targetId, seen))
+    },
+    [tasksById],
+  )
+
+  const dropTargetAt = (clientX: number, clientY: number): string | undefined => {
+    const el = document.elementFromPoint(clientX, clientY)
+    const card = el instanceof Element ? el.closest<HTMLElement>('[data-task-id]') : null
+    return card?.dataset.taskId
+  }
+
+  const startDrag = (taskId: string, clientX: number, clientY: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setDrag({ fromId: taskId, x: clientX - rect.left, y: clientY - rect.top })
+  }
+
+  const updateDragPos = (clientX: number, clientY: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setDrag((d) => (d ? { ...d, x: clientX - rect.left, y: clientY - rect.top } : d))
+    setDropTargetId(dropTargetAt(clientX, clientY) ?? null)
+  }
+
+  const finishDrag = (taskId: string, clientX: number, clientY: number) => {
+    const targetId = dropTargetAt(clientX, clientY)
+    setDrag(null)
+    setDropTargetId(null)
+    if (!targetId || targetId === taskId) return
+    const source = tasksById.get(taskId)
+    const target = tasksById.get(targetId)
+    if (!source || !target) return
+    const existing = target.dependsOnIds ?? []
+    if (existing.includes(taskId)) {
+      toast(`「${source.name}」は既に「${target.name}」の前提タスクです`)
+      return
+    }
+    if (dependsOnTransitively(taskId, targetId)) {
+      toast('循環する依存関係になるため設定できません')
+      return
+    }
+    updateDependsOn(targetId, [...existing, taskId])
+    toast(`「${source.name}」を「${target.name}」の前提タスクに設定しました`)
+  }
+
+  const clearPress = () => {
+    const ps = pressRef.current
+    if (ps?.timer) window.clearTimeout(ps.timer)
+    pressRef.current = null
+  }
+
+  const handlePointerDown = (e: React.PointerEvent, taskId: string) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      /* ignore — pointer capture is a nice-to-have */
+    }
+    const { clientX, clientY } = e
+    clearPress()
+    const timer = window.setTimeout(() => {
+      const ps = pressRef.current
+      if (ps && ps.taskId === taskId && !ps.dragging) {
+        ps.dragging = true
+        startDrag(taskId, ps.lastX, ps.lastY)
+      }
+    }, LONG_PRESS_MS)
+    pressRef.current = { taskId, startX: clientX, startY: clientY, lastX: clientX, lastY: clientY, dragging: false, timer }
+  }
+
+  const handlePointerMove = (e: React.PointerEvent, taskId: string) => {
+    const ps = pressRef.current
+    if (!ps || ps.taskId !== taskId) return
+    ps.lastX = e.clientX
+    ps.lastY = e.clientY
+    if (!ps.dragging) {
+      const dist = Math.hypot(e.clientX - ps.startX, e.clientY - ps.startY)
+      if (dist > DRAG_THRESHOLD) {
+        ps.dragging = true
+        if (ps.timer) window.clearTimeout(ps.timer)
+        startDrag(taskId, e.clientX, e.clientY)
+      }
+      return
+    }
+    updateDragPos(e.clientX, e.clientY)
+  }
+
+  const handlePointerUp = (e: React.PointerEvent, taskId: string) => {
+    const ps = pressRef.current
+    if (!ps || ps.taskId !== taskId) return
+    if (ps.timer) window.clearTimeout(ps.timer)
+    const wasDragging = ps.dragging
+    pressRef.current = null
+    if (wasDragging) {
+      finishDrag(taskId, e.clientX, e.clientY)
+    } else {
+      onOpenTask(taskId)
+    }
+  }
+
+  const handlePointerCancel = (taskId: string) => {
+    const ps = pressRef.current
+    if (!ps || ps.taskId !== taskId) return
+    clearPress()
+    setDrag(null)
+    setDropTargetId(null)
+  }
+
   if (tasks.length === 0) {
     return (
       <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border text-sm text-muted-foreground">
@@ -99,16 +246,19 @@ export function DependencyView({
     )
   }
 
+  const dragFromPos = drag ? positions.get(drag.fromId) : undefined
+
   return (
     <div className="flex flex-col gap-3">
       {!hasAnyDependency && (
         <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
           <GitBranch className="size-3.5 shrink-0" />
-          まだ前提タスクが設定されていません。タスク詳細から「前提タスク」を編集できます。
+          まだ前提タスクが設定されていません。カードをドラッグ、または長押ししてから別のカードにつなげると前提タスクとして設定できます。
         </div>
       )}
       <div className="relative overflow-auto orbit-scroll rounded-xl border border-border bg-secondary/30 p-6">
         <div
+          ref={canvasRef}
           className="relative"
           style={{ width: svgWidth, height: svgHeight, minWidth: '100%' }}
         >
@@ -152,16 +302,54 @@ export function DependencyView({
             </defs>
           </svg>
 
+          {drag && dragFromPos && (
+            <svg
+              className="pointer-events-none absolute left-0 top-0 overflow-visible"
+              width={svgWidth}
+              height={svgHeight}
+            >
+              <line
+                x1={dragFromPos.x + CARD_W / 2}
+                y1={dragFromPos.y + CARD_H / 2}
+                x2={drag.x}
+                y2={drag.y}
+                stroke="var(--primary)"
+                strokeWidth={2}
+                strokeDasharray="5 4"
+              />
+              <circle cx={drag.x} cy={drag.y} r={4} fill="var(--primary)" />
+            </svg>
+          )}
+
           {tasks.map((t) => {
             const p = positions.get(t.id)
             if (!p) return null
+            const isDragSource = drag?.fromId === t.id
+            const isDropTarget = !!drag && dropTargetId === t.id && t.id !== drag.fromId
             return (
-              <button
+              <div
                 key={t.id}
-                onClick={() => onOpenTask(t.id)}
-                className="absolute flex flex-col justify-between rounded-lg border border-border bg-card px-3 py-2 text-left shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-colors hover:border-border-strong"
-                style={{ left: p.x, top: p.y, width: CARD_W, height: CARD_H }}
+                data-task-id={t.id}
+                role="button"
+                tabIndex={0}
+                onPointerDown={(e) => handlePointerDown(e, t.id)}
+                onPointerMove={(e) => handlePointerMove(e, t.id)}
+                onPointerUp={(e) => handlePointerUp(e, t.id)}
+                onPointerCancel={() => handlePointerCancel(t.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onOpenTask(t.id)
+                  }
+                }}
+                className={`absolute flex cursor-grab select-none flex-col justify-between rounded-lg border bg-card px-3 py-2 text-left shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-colors ${
+                  isDropTarget
+                    ? 'border-primary ring-2 ring-primary'
+                    : 'border-border hover:border-border-strong'
+                } ${isDragSource ? 'opacity-50' : ''}`}
+                style={{ left: p.x, top: p.y, width: CARD_W, height: CARD_H, touchAction: 'none' }}
               >
+                <GripVertical className="pointer-events-none absolute right-1 top-1 size-3 text-muted-foreground/40" />
                 <div className="flex items-center gap-1.5">
                   <span
                     className="size-2 shrink-0 rounded-full"
@@ -173,7 +361,7 @@ export function DependencyView({
                   <span className="text-[11px] text-muted-foreground">{STATUS_LABEL[t.status]}</span>
                   <DifficultyBadge difficulty={t.difficulty} />
                 </div>
-              </button>
+              </div>
             )
           })}
         </div>

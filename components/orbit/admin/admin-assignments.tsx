@@ -10,7 +10,7 @@ import { ChevronDown, Sparkles, Info } from 'lucide-react'
 import type { Task, Member } from '@/lib/orbit/types'
 
 export function AdminAssignments() {
-  const { visibleTasks: tasks, members, getProject, assignTask } = useOrbit()
+  const { adminTasks: tasks, members, getProject, assignTask } = useOrbit()
   const unassigned = tasks.filter((t) => t.assigneeIds.length === 0 && t.status !== 'done')
   const [selectedId, setSelectedId] = useState<string | null>(unassigned[0]?.id ?? null)
 
