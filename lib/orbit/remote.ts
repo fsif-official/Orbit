@@ -161,6 +161,8 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
     // Talent matching (design doc §7) scores on will+judgment tags; skills
     // is derived from the same two so the existing matching UI keeps working.
     skills: [...will, ...judgment],
+    email: r.email || undefined,
+    notify: /^(true|1|yes)$/i.test((r.notify_new_task || '').trim()),
   }
 }
 
@@ -199,6 +201,7 @@ function mapTaskRow(r: Record<string, string>): Task {
     createdAt: r.created_at || undefined,
     progress: r.progress_note || undefined,
     progressHistory: [],
+    pendingApproval: r.approval_status === '承認待ち',
   }
 }
 
@@ -239,6 +242,7 @@ export interface CreateTaskPayload {
   deadline: string | null
   creatorId?: string
   originalInputId?: string
+  pendingApproval?: boolean
 }
 
 async function postToGas<T = unknown>(action: string, payload: Record<string, unknown>): Promise<T> {
@@ -269,6 +273,12 @@ export const remoteApi = {
   updateWill: (memberId: string, will: string[]) => postToGas('updateWill', { memberId, will }),
   updateJudgment: (memberId: string, judgment: string[]) =>
     postToGas('updateJudgment', { memberId, judgment }),
+  approveTask: (taskId: string) => postToGas('approveTask', { taskId }),
+  createProject: (name: string, description: string) =>
+    postToGas<{ id: string }>('createProject', { name, description }),
+  removeMember: (memberId: string) => postToGas('removeMember', { memberId }),
+  updateNotify: (memberId: string, notify: boolean) =>
+    postToGas('updateNotify', { memberId, notify }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to
@@ -286,5 +296,6 @@ export function toCreatePayload(tempId: string, p: ParsedTask, creatorId?: strin
     deadline: p.deadline,
     creatorId,
     originalInputId,
+    pendingApproval: true,
   }
 }

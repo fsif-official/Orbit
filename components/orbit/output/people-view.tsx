@@ -5,7 +5,7 @@ import { Avatar } from '@/components/orbit/primitives'
 import { useNav } from '@/lib/orbit/nav'
 
 export function PeopleView() {
-  const { members, tasks } = useOrbit()
+  const { members, visibleTasks: tasks } = useOrbit()
   const { go } = useNav()
 
   return (

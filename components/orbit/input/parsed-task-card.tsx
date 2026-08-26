@@ -18,8 +18,11 @@ export function ParsedTaskCard({
   onChange: (t: ParsedTask) => void
   onToggle: () => void
 }) {
-  const { projects, members } = useOrbit()
+  const { projects, members, skillOptions, categoryOptions, addSkillOption, addCategoryOption } =
+    useOrbit()
   const [skillDraft, setSkillDraft] = useState('')
+  const [addingCategory, setAddingCategory] = useState(false)
+  const [categoryDraft, setCategoryDraft] = useState('')
   const candidates = rankCandidates(task, members).slice(0, 3)
 
   const set = <K extends keyof ParsedTask>(key: K, value: ParsedTask[K]) =>
@@ -27,8 +30,23 @@ export function ParsedTaskCard({
 
   const addSkill = () => {
     const v = skillDraft.trim()
-    if (v && !task.skills.includes(v)) set('skills', [...task.skills, v])
+    if (v) {
+      addSkillOption(v)
+      if (!task.skills.includes(v)) set('skills', [...task.skills, v])
+    }
     setSkillDraft('')
+  }
+
+  const availableSkills = skillOptions.filter((s) => !task.skills.includes(s))
+
+  const commitNewCategory = () => {
+    const v = categoryDraft.trim()
+    if (v) {
+      addCategoryOption(v)
+      set('category', v)
+    }
+    setCategoryDraft('')
+    setAddingCategory(false)
   }
 
   return (
@@ -86,11 +104,51 @@ export function ParsedTaskCard({
         </Field>
 
         <Field label="カテゴリ">
-          <input
-            value={task.category}
-            onChange={(e) => set('category', e.target.value)}
-            className="w-full rounded-md border border-transparent bg-transparent py-0.5 text-sm outline-none hover:border-border focus:border-border-strong"
-          />
+          {addingCategory ? (
+            <div className="flex items-center gap-1">
+              <input
+                autoFocus
+                value={categoryDraft}
+                onChange={(e) => setCategoryDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    commitNewCategory()
+                  }
+                  if (e.key === 'Escape') {
+                    setCategoryDraft('')
+                    setAddingCategory(false)
+                  }
+                }}
+                onBlur={commitNewCategory}
+                placeholder="新しいカテゴリ名"
+                className="w-full rounded-md border border-primary bg-card px-1.5 py-0.5 text-sm outline-none"
+              />
+            </div>
+          ) : (
+            <select
+              value={task.category}
+              onChange={(e) => {
+                if (e.target.value === '__new__') {
+                  setAddingCategory(true)
+                } else {
+                  set('category', e.target.value)
+                }
+              }}
+              className="w-full cursor-pointer rounded-md border border-transparent bg-transparent py-0.5 text-sm outline-none hover:border-border focus:border-border-strong"
+            >
+              {!categoryOptions.includes(task.category) && task.category && (
+                <option value={task.category}>{task.category}</option>
+              )}
+              {categoryOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+              <option value="__new__">＋ 新しいカテゴリを追加</option>
+            </select>
+          )}
         </Field>
 
         <Field label="難易度">
@@ -122,6 +180,24 @@ export function ParsedTaskCard({
                 {s}
               </Tag>
             ))}
+            {availableSkills.length > 0 && (
+              <select
+                value=""
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v && !task.skills.includes(v)) set('skills', [...task.skills, v])
+                }}
+                className="cursor-pointer rounded-md border border-dashed border-border-strong bg-transparent px-1.5 py-0.5 text-[11px] text-muted-foreground outline-none hover:border-border"
+                aria-label="既存のスキルから選択"
+              >
+                <option value="">選択して追加</option>
+                {availableSkills.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            )}
             <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-border-strong px-1.5 py-0.5">
               <input
                 value={skillDraft}

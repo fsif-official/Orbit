@@ -1,10 +1,12 @@
 'use client'
 
+import { useEffect } from 'react'
 import { OrbitProvider, useOrbit } from '@/lib/orbit/store'
 import { NavProvider, useNav } from '@/lib/orbit/nav'
 import { ThemeProvider } from '@/lib/orbit/theme'
-import { ToastProvider } from './toast'
+import { ToastProvider, useToast } from './toast'
 import { LoginScreen } from './login-screen'
+import { OnboardingScreen } from './onboarding-screen'
 import { Header } from './header'
 import { InputScreen } from './input/input-screen'
 import { OutputScreen } from './output/output-screen'
@@ -13,11 +15,27 @@ import { ProjectDetail } from './projects/project-detail'
 import { AdminScreen } from './admin/admin-screen'
 import { TriangleAlert } from 'lucide-react'
 
+// lives inside ToastProvider so it can surface store-level events that
+// don't have a specific screen to render into (skill auto-certification)
+function SkillCertifiedWatcher() {
+  const { skillCertifiedEvent, clearSkillCertifiedEvent } = useOrbit()
+  const toast = useToast()
+
+  useEffect(() => {
+    if (!skillCertifiedEvent) return
+    toast(`${skillCertifiedEvent.memberName} さんのスキルに「${skillCertifiedEvent.skill}」が認定されました`)
+    clearSkillCertifiedEvent()
+  }, [skillCertifiedEvent, clearSkillCertifiedEvent, toast])
+
+  return null
+}
+
 function Router() {
-  const { currentUser, remoteEnabled, remoteError } = useOrbit()
+  const { currentUser, needsOnboarding, remoteEnabled, remoteError } = useOrbit()
   const { screen } = useNav()
 
   if (!currentUser) return <LoginScreen />
+  if (needsOnboarding) return <OnboardingScreen />
 
   return (
     <div className="min-h-screen bg-background">
@@ -44,6 +62,7 @@ export function OrbitApp() {
     <ThemeProvider>
       <OrbitProvider>
         <ToastProvider>
+          <SkillCertifiedWatcher />
           <NavProvider>
             <Router />
           </NavProvider>

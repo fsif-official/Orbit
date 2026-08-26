@@ -5,10 +5,10 @@ import { useNav } from '@/lib/orbit/nav'
 import { Avatar, ProjectTag } from '@/components/orbit/primitives'
 import { isOverdue, daysSince, formatDeadline } from '@/lib/orbit/utils'
 import { STATUS_LABEL } from '@/lib/orbit/types'
-import { CircleAlert, Clock, UserX, Activity } from 'lucide-react'
+import { CircleAlert, Clock, UserX, Activity, FileClock } from 'lucide-react'
 
 export function AdminDashboard() {
-  const { tasks, getProject, setMode } = useOrbit()
+  const { visibleTasks: tasks, pendingTasks, getProject, setMode } = useOrbit()
   const { go } = useNav()
 
   const openInOutput = () => {
@@ -27,6 +27,7 @@ export function AdminDashboard() {
 
   const metrics = [
     { label: '全タスク', value: tasks.length, tone: 'neutral' as const },
+    { label: '承認待ち', value: pendingTasks.length, tone: 'accent' as const },
     { label: '進行中', value: inProgress.length, tone: 'neutral' as const },
     { label: '確認待ち', value: waiting.length, tone: 'warn' as const },
     { label: '期限超過', value: overdue.length, tone: 'danger' as const },
@@ -46,7 +47,7 @@ export function AdminDashboard() {
       <p className="mt-1 text-sm text-muted-foreground">組織全体のタスク状況と、対応が必要な項目です。</p>
 
       {/* Metric cards */}
-      <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         {metrics.map((m) => (
           <div key={m.label} className="rounded-lg border border-border bg-card p-4">
             <div className="text-xs text-muted-foreground">{m.label}</div>
@@ -61,6 +62,14 @@ export function AdminDashboard() {
       <div className="mt-8">
         <h2 className="text-sm font-semibold">対応が必要</h2>
         <div className="mt-3 grid gap-4 lg:grid-cols-2">
+          <AttentionGroup
+            title="承認待ち"
+            icon={<FileClock className="size-4 text-primary" />}
+            tasks={pendingTasks}
+            renderMeta={(t) => getProject(t.projectId)?.name ?? ''}
+            onOpen={() => go({ name: 'admin', section: 'approvals' })}
+            getProject={getProject}
+          />
           <AttentionGroup
             title="確認待ち"
             icon={<Clock className="size-4 text-[var(--status-review-fg)]" />}

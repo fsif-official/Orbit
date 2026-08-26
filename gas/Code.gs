@@ -16,6 +16,11 @@ var SHEET_MEMBERS = 'Members'
 var SHEET_PROJECTS = 'Projects'
 var SHEET_TASKS = 'Tasks'
 
+// A member is completing a certain number of same-category tasks and
+// auto-certifying isn't something this file does — that check runs
+// client-side (lib/orbit/store.tsx) since it only needs data already in
+// hand. This file only handles writes coming from the browser.
+
 function doGet(e) {
   return ContentService.createTextOutput('Orbit GAS endpoint is up.').setMimeType(
     ContentService.MimeType.TEXT,
@@ -55,6 +60,20 @@ function doPost(e) {
       case 'updateJudgment':
         result = updateMemberFields(body.memberId, {
           judgment_tags: (body.judgment || []).join(','),
+        })
+        break
+      case 'approveTask':
+        result = updateTaskFields(body.taskId, { approval_status: '承認済み' })
+        break
+      case 'createProject':
+        result = createProject(body.name, body.description)
+        break
+      case 'removeMember':
+        result = removeMember(body.memberId)
+        break
+      case 'updateNotify':
+        result = updateMemberFields(body.memberId, {
+          notify_new_task: body.notify ? 'TRUE' : 'FALSE',
         })
         break
       default:
@@ -118,6 +137,8 @@ function createTasks(tasks) {
           return today
         case 'original_input_id':
           return t.originalInputId || ''
+        case 'approval_status':
+          return t.pendingApproval === false ? '承認済み' : '承認待ち'
         default:
           return ''
       }
@@ -126,6 +147,7 @@ function createTasks(tasks) {
     created.push({ tempId: t.tempId, id: id })
   })
 
+  notifyNewTasks(tasks)
   return created
 }
 
@@ -133,10 +155,98 @@ function updateTaskFields(taskId, fields) {
   return updateRowFields(SHEET_TASKS, taskId, fields)
 }
 
+// Emails whoever is flagged notify_new_task=TRUE on Members, falling back
+// to every 代表 if nobody opted in (a notification must always go out
+// somewhere). Best-effort: a mail failure never fails task creation.
+function notifyNewTasks(tasks) {
+  try {
+    var sheet = getSheet(SHEET_MEMBERS)
+    var headers = headerRow(sheet)
+    var rows = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 0), headers.length).getValues()
+    var emailCol = headers.indexOf('email')
+    var notifyCol = headers.indexOf('notify_new_task')
+    var roleCol = headers.indexOf('role')
+    if (emailCol === -1) return // no email column configured yet
+
+    var opted = []
+    var reps = []
+    rows.forEach(function (r) {
+      var email = String(r[emailCol] || '').trim()
+      if (!email) return
+      var notify = notifyCol !== -1 && /^(true|1|yes)$/i.test(String(r[notifyCol] || ''))
+      if (notify) opted.push(email)
+      else if (roleCol !== -1 && r[roleCol] === '代表') reps.push(email)
+    })
+    var recipients = opted.length > 0 ? opted : reps
+    if (recipients.length === 0) return
+
+    var titles = tasks.map(function (t) {
+      return '・' + t.title
+    })
+    MailApp.sendEmail({
+      to: recipients.join(','),
+      subject: '[Orbit] 新しいタスクが承認待ちです（' + tasks.length + '件）',
+      body:
+        '以下のタスクが登録され、承認待ちです。\n\n' +
+        titles.join('\n') +
+        '\n\nOrbitの管理画面 > 承認 から確認してください。',
+    })
+  } catch (err) {
+    // swallow — a mail error shouldn't roll back task creation
+  }
+}
+
+// ---- Projects ---------------------------------------------------------------
+
+function createProject(name, description) {
+  var sheet = getSheet(SHEET_PROJECTS)
+  var headers = headerRow(sheet)
+  var id = String(nextIntId(sheet, headers))
+  var row = headers.map(function (h) {
+    if (h === 'id') return id
+    if (h === 'name') return name
+    if (h === 'description') return description || ''
+    return ''
+  })
+  sheet.appendRow(row)
+  return { id: id }
+}
+
 // ---- Members ----------------------------------------------------------------
 
 function updateMemberFields(memberId, fields) {
   return updateRowFields(SHEET_MEMBERS, memberId, fields)
+}
+
+// Deletes the member's row and clears assignee_id on every task assigned
+// to them, so their work goes back to the open pool.
+function removeMember(memberId) {
+  var members = getSheet(SHEET_MEMBERS)
+  var memberHeaders = headerRow(members)
+  var idCol = memberHeaders.indexOf('id') + 1
+  var lastRow = members.getLastRow()
+  var ids = idCol > 0 ? members.getRange(2, idCol, Math.max(lastRow - 1, 0), 1).getValues() : []
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === String(memberId)) {
+      members.deleteRow(i + 2)
+      break
+    }
+  }
+
+  var tasks = getSheet(SHEET_TASKS)
+  var taskHeaders = headerRow(tasks)
+  var assigneeCol = taskHeaders.indexOf('assignee_id') + 1
+  if (assigneeCol > 0) {
+    var taskLastRow = tasks.getLastRow()
+    var assignees = tasks.getRange(2, assigneeCol, Math.max(taskLastRow - 1, 0), 1).getValues()
+    for (var j = 0; j < assignees.length; j++) {
+      if (String(assignees[j][0]) === String(memberId)) {
+        tasks.getRange(j + 2, assigneeCol).setValue('')
+      }
+    }
+  }
+
+  return { removed: memberId }
 }
 
 // ---- shared row helpers -----------------------------------------------------

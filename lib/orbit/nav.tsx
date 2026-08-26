@@ -17,7 +17,10 @@ export type Screen =
     }
   | { name: 'person'; id: string }
   | { name: 'project'; id: string }
-  | { name: 'admin'; section: 'dashboard' | 'assignments' | 'members' }
+  | {
+      name: 'admin'
+      section: 'dashboard' | 'assignments' | 'approvals' | 'projects' | 'members' | 'tags'
+    }
 
 interface NavValue {
   screen: Screen
