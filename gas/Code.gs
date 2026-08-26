@@ -142,6 +142,19 @@ function doPost(e) {
           history_json: JSON.stringify(body.history || []),
         })
         break
+      case 'updateComments':
+        result = updateTaskFields(body.taskId, {
+          comments_json: JSON.stringify(body.comments || []),
+        })
+        break
+      case 'updateProjectMembers':
+        result = updateProjectFields(body.projectId, {
+          member_ids: (body.memberIds || []).join(','),
+        })
+        break
+      case 'updateProjectOwner':
+        result = updateProjectFields(body.projectId, { owner_id: body.ownerId || '' })
+        break
       case 'updateAvatar':
         // choosing a color+initials avatar supersedes any uploaded picture
         result = updateMemberFields(body.memberId, {
@@ -253,6 +266,10 @@ function createTasks(tasks) {
 
 function updateTaskFields(taskId, fields) {
   return updateRowFields(SHEET_TASKS, taskId, fields)
+}
+
+function updateProjectFields(projectId, fields) {
+  return updateRowFields(SHEET_PROJECTS, projectId, fields)
 }
 
 // Emails whoever is flagged notify_new_task=TRUE on Members, falling back

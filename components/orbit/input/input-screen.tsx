@@ -7,7 +7,8 @@ import { useNav } from '@/lib/orbit/nav'
 import { useToast } from '../toast'
 import { Modal } from '../modal'
 import { buildDemoParse, DEMO_INPUT } from '@/lib/orbit/seed'
-import type { ParsedTask, Department, Priority, TaskInput } from '@/lib/orbit/types'
+import { DEPARTMENTS, DIFFICULTY_LABEL, PRIORITIES } from '@/lib/orbit/types'
+import type { ParsedTask, Department, Difficulty, Priority, TaskInput } from '@/lib/orbit/types'
 import { ParsedTaskCard } from './parsed-task-card'
 import { OrbitMark, SectionLabel, StatusBadge } from '../primitives'
 import { formatDateTime } from '@/lib/orbit/utils'
@@ -31,7 +32,8 @@ function loadDraft(userId: string | null | undefined): string {
 }
 
 export function InputScreen() {
-  const { addTasksFromInput, setMode, currentUser, inputs, tasks } = useOrbit()
+  const { addTasksFromInput, setMode, currentUser, inputs, tasks, projects, categoryOptions } =
+    useOrbit()
   const { go } = useNav()
   const toast = useToast()
 
@@ -42,6 +44,7 @@ export function InputScreen() {
   const [parseFailed, setParseFailed] = useState(false)
   const [registered, setRegistered] = useState(false)
   const [historyInput, setHistoryInput] = useState<TaskInput | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const myInputs = inputs.filter((i) => i.createdById === currentUser?.id)
 
@@ -79,6 +82,21 @@ export function InputScreen() {
   }
 
   const approvedCount = parsed.filter((p) => p.approved).length
+  const allSelected = parsed.length > 0 && parsed.every((p) => selectedIds.has(p.id))
+  const toggleSelectAll = () =>
+    setSelectedIds(allSelected ? new Set() : new Set(parsed.map((p) => p.id)))
+  const toggleSelectOne = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  // 入力画面でプロジェクトなどを一括で変えたい — applies one field to every
+  // currently-checked card at once
+  const bulkApply = <K extends keyof ParsedTask>(key: K, value: ParsedTask[K]) => {
+    setParsed((prev) => prev.map((p) => (selectedIds.has(p.id) ? { ...p, [key]: value } : p)))
+  }
 
   const handleRegister = () => {
     const approved = parsed.filter((p) => p.approved)
@@ -88,6 +106,7 @@ export function InputScreen() {
     setPhase('input')
     setText('')
     setParsed([])
+    setSelectedIds(new Set())
     setRegistered(true)
   }
 
@@ -271,11 +290,107 @@ export function InputScreen() {
             </p>
           </div>
 
+          {parsed.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+              <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  className="size-3.5 cursor-pointer accent-primary"
+                />
+                すべて選択{selectedIds.size > 0 && `（${selectedIds.size}件）`}
+              </label>
+              {selectedIds.size > 0 && (
+                <>
+                  <span className="text-xs text-muted-foreground">一括変更:</span>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) bulkApply('projectId', e.target.value)
+                      e.target.value = ''
+                    }}
+                    className="h-7 cursor-pointer rounded-md border border-border bg-background px-1.5 text-xs outline-none"
+                  >
+                    <option value="">プロジェクト</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) bulkApply('department', e.target.value as Department)
+                      e.target.value = ''
+                    }}
+                    className="h-7 cursor-pointer rounded-md border border-border bg-background px-1.5 text-xs outline-none"
+                  >
+                    <option value="">部門</option>
+                    {DEPARTMENTS.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) bulkApply('category', e.target.value)
+                      e.target.value = ''
+                    }}
+                    className="h-7 cursor-pointer rounded-md border border-border bg-background px-1.5 text-xs outline-none"
+                  >
+                    <option value="">カテゴリ</option>
+                    {categoryOptions.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) bulkApply('difficulty', e.target.value as Difficulty)
+                      e.target.value = ''
+                    }}
+                    className="h-7 cursor-pointer rounded-md border border-border bg-background px-1.5 text-xs outline-none"
+                  >
+                    <option value="">難易度</option>
+                    {DIFFICULTY_LABEL.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) bulkApply('priority', e.target.value as Priority)
+                      e.target.value = ''
+                    }}
+                    className="h-7 cursor-pointer rounded-md border border-border bg-background px-1.5 text-xs outline-none"
+                  >
+                    <option value="">優先度</option>
+                    {PRIORITIES.map((p) => (
+                      <option key={p} value={p}>
+                        優先度{p}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="space-y-3">
             {parsed.map((p) => (
               <ParsedTaskCard
                 key={p.id}
                 task={p}
+                selected={selectedIds.has(p.id)}
+                onToggleSelect={() => toggleSelectOne(p.id)}
                 onChange={(t) =>
                   setParsed((prev) => prev.map((x) => (x.id === t.id ? t : x)))
                 }
@@ -286,7 +401,14 @@ export function InputScreen() {
                     ),
                   )
                 }
-                onDelete={() => setParsed((prev) => prev.filter((x) => x.id !== p.id))}
+                onDelete={() => {
+                  setParsed((prev) => prev.filter((x) => x.id !== p.id))
+                  setSelectedIds((prev) => {
+                    const next = new Set(prev)
+                    next.delete(p.id)
+                    return next
+                  })
+                }}
               />
             ))}
             {parsed.length === 0 && (
@@ -308,6 +430,7 @@ export function InputScreen() {
                 onClick={() => {
                   setPhase('input')
                   setParsed([])
+                  setSelectedIds(new Set())
                 }}
               >
                 やり直す
@@ -416,7 +539,9 @@ function parseText(text: string): ParsedTask[] {
       projectId: 'p-cosmo-base',
       department,
       deadline,
-      category: skills[0],
+      // left for the user to pick from the おすすめ chips / dropdown in
+      // ParsedTaskCard — a skill name isn't a meaningful category guess
+      category: '未分類',
       skills,
       difficulty: '新人歓迎' as const,
       priority,

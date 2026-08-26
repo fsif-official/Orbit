@@ -33,6 +33,7 @@ import {
   Link2,
   Pencil,
   Plus,
+  Search,
   TriangleAlert,
   UserCheck,
   UserPlus,
@@ -93,6 +94,8 @@ export function TaskDetailDrawer({
     setBlocker,
     addDeliverable,
     removeDeliverable,
+    addComment,
+    removeComment,
     members,
   } = useOrbit()
   const toast = useToast()
@@ -101,6 +104,7 @@ export function TaskDetailDrawer({
   const [inputOpen, setInputOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [dependsOpen, setDependsOpen] = useState(false)
+  const [dependsQuery, setDependsQuery] = useState('')
   const [reviewerOpen, setReviewerOpen] = useState(false)
   const [blockerOpen, setBlockerOpen] = useState(false)
 
@@ -146,6 +150,8 @@ export function TaskDetailDrawer({
             }}
             onAddDeliverable={(label, url) => addDeliverable(task.id, label, url)}
             onRemoveDeliverable={(id) => removeDeliverable(task.id, id)}
+            onAddComment={(text) => addComment(task.id, text)}
+            onRemoveComment={(commentId) => removeComment(task.id, commentId)}
             onProgress={(text) => {
               updateProgress(task.id, text)
               toast('進捗を更新しました')
@@ -266,20 +272,47 @@ export function TaskDetailDrawer({
       />
 
       {/* Dependency (prerequisite tasks) edit */}
-      <Modal open={dependsOpen} onClose={() => setDependsOpen(false)}>
+      <Modal
+        open={dependsOpen}
+        onClose={() => {
+          setDependsOpen(false)
+          setDependsQuery('')
+        }}
+      >
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold">前提タスクを設定</h2>
-          <button onClick={() => setDependsOpen(false)} aria-label="閉じる">
+          <button
+            onClick={() => {
+              setDependsOpen(false)
+              setDependsQuery('')
+            }}
+            aria-label="閉じる"
+          >
             <X className="size-4 text-muted-foreground" />
           </button>
         </div>
         <p className="mb-2 text-xs text-muted-foreground">
           このタスクを開始する前に完了しておく必要があるタスクを選びます。
         </p>
+        <div className="relative mb-2">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={dependsQuery}
+            onChange={(e) => setDependsQuery(e.target.value)}
+            placeholder="タスク名で検索"
+            autoFocus
+            className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-2.5 text-sm outline-none focus:border-primary"
+          />
+        </div>
         <div className="flex max-h-80 flex-col gap-1 overflow-auto orbit-scroll">
-          {tasks
-            .filter((t) => t.id !== task?.id)
-            .map((t) => {
+          {(() => {
+            const filtered = tasks
+              .filter((t) => t.id !== task?.id)
+              .filter((t) => t.name.toLowerCase().includes(dependsQuery.trim().toLowerCase()))
+            if (filtered.length === 0) {
+              return <p className="px-3 py-2 text-sm text-muted-foreground">該当するタスクがありません。</p>
+            }
+            return filtered.map((t) => {
               const checked = !!task?.dependsOnIds?.includes(t.id)
               return (
                 <button
@@ -302,7 +335,8 @@ export function TaskDetailDrawer({
                   {checked && <Check className="size-4 shrink-0 text-primary" strokeWidth={3} />}
                 </button>
               )
-            })}
+            })
+          })()}
         </div>
       </Modal>
 
@@ -502,6 +536,8 @@ function DrawerBody({
   onClearBlocker,
   onAddDeliverable,
   onRemoveDeliverable,
+  onAddComment,
+  onRemoveComment,
   onProgress,
 }: {
   task: Task
@@ -526,6 +562,8 @@ function DrawerBody({
   onClearBlocker: () => void
   onAddDeliverable: (label: string, url: string) => void
   onRemoveDeliverable: (id: string) => void
+  onAddComment: (text: string) => void
+  onRemoveComment: (commentId: string) => void
   onProgress: (text: string) => void
 }) {
   const overdue = isOverdue(task)
@@ -542,6 +580,7 @@ function DrawerBody({
   const [progressDraft, setProgressDraft] = useState('')
   const [deliverableLabel, setDeliverableLabel] = useState('')
   const [deliverableUrl, setDeliverableUrl] = useState('')
+  const [commentDraft, setCommentDraft] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
 
   // only an admin can move a task to the final 完了 — an assignee's own
@@ -901,6 +940,65 @@ function DrawerBody({
               </Button>
             </div>
           )}
+        </div>
+
+        {/* Comments */}
+        <div className="mt-6">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            コメント
+          </div>
+          {(task.comments?.length ?? 0) > 0 ? (
+            <ul className="mb-3 flex flex-col gap-2.5">
+              {task.comments!.map((c) => {
+                const author = members.find((m) => m.id === c.byId)
+                const canDelete = isAdmin || c.byId === currentUserId
+                return (
+                  <li key={c.id} className="rounded-lg border border-border bg-secondary/40 px-3 py-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        {author && <Avatar member={author} size={18} />}
+                        <span className="text-xs font-medium">
+                          {author?.displayName || author?.name || '不明'}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">{formatDateTime(c.at)}</span>
+                      </div>
+                      {canDelete && (
+                        <button
+                          onClick={() => onRemoveComment(c.id)}
+                          className="shrink-0 text-muted-foreground hover:text-destructive"
+                          aria-label="削除"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{c.text}</p>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <p className="mb-3 text-sm text-muted-foreground">まだコメントがありません。</p>
+          )}
+          <div className="flex items-start gap-2">
+            <textarea
+              value={commentDraft}
+              onChange={(e) => setCommentDraft(e.target.value)}
+              rows={2}
+              placeholder="コメントを追加"
+              className="min-h-[52px] flex-1 resize-none rounded-lg border border-border bg-card px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
+            />
+            <Button
+              className="h-9 shrink-0"
+              disabled={!commentDraft.trim()}
+              onClick={() => {
+                onAddComment(commentDraft)
+                setCommentDraft('')
+              }}
+            >
+              送信
+            </Button>
+          </div>
         </div>
 
         {/* Change history */}

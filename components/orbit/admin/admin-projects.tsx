@@ -17,7 +17,7 @@ import type {
   TaskSetTemplate,
   TaskSetTemplateItem,
 } from '@/lib/orbit/types'
-import { Check, LayoutTemplate, Plus, Repeat, Trash2 } from 'lucide-react'
+import { Check, LayoutTemplate, Plus, Repeat, Trash2, UserCog, UserPlus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function AdminProjects() {
@@ -27,6 +27,8 @@ export function AdminProjects() {
     members,
     addProject,
     removeProject,
+    updateProjectMembers,
+    updateProjectOwner,
     projectTypes,
     projectTemplates,
     setProjectTemplateTasks,
@@ -45,6 +47,8 @@ export function AdminProjects() {
   const toast = useToast()
   const [removing, setRemoving] = useState<Project | null>(null)
   const [applyingTo, setApplyingTo] = useState<Project | null>(null)
+  const [managingMembersOf, setManagingMembersOf] = useState<Project | null>(null)
+  const [managingOwnerOf, setManagingOwnerOf] = useState<Project | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [type, setType] = useState('')
@@ -67,9 +71,16 @@ export function AdminProjects() {
     setType('')
   }
 
-  const projectMembers = (projectId: string) => {
+  // union of explicitly-assigned members (Project.memberIds, managed below)
+  // and whoever's actually assigned to one of the project's tasks — keeps
+  // older projects' avatar stack populated even before anyone touches the
+  // new "担当者を管理" control
+  const projectMembers = (project: Project) => {
     const ids = Array.from(
-      new Set(visibleTasks.filter((t) => t.projectId === projectId).flatMap((t) => t.assigneeIds)),
+      new Set([
+        ...(project.memberIds ?? []),
+        ...visibleTasks.filter((t) => t.projectId === project.id).flatMap((t) => t.assigneeIds),
+      ]),
     )
     return ids.map((id) => members.find((m) => m.id === id)).filter(Boolean) as typeof members
   }
@@ -137,13 +148,15 @@ export function AdminProjects() {
               <th className="px-4 py-2.5 font-medium">種類</th>
               <th className="px-4 py-2.5 font-medium">概要</th>
               <th className="px-4 py-2.5 font-medium">担当者</th>
+              <th className="px-4 py-2.5 font-medium">責任者</th>
               <th className="px-4 py-2.5 font-medium">タスク数</th>
               {isFullAdmin && <th className="px-4 py-2.5 font-medium" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {projects.map((p) => {
-              const pm = projectMembers(p.id)
+              const pm = projectMembers(p)
+              const owner = members.find((m) => m.id === p.ownerId)
               const taskCount = visibleTasks.filter((t) => t.projectId === p.id).length
               return (
                 <tr key={p.id}>
@@ -153,17 +166,49 @@ export function AdminProjects() {
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{p.description}</td>
                   <td className="px-4 py-3">
-                    {pm.length > 0 ? (
-                      <div className="flex -space-x-1.5">
-                        {pm.slice(0, 6).map((m) => (
-                          <span key={m.id} className="rounded-full ring-2 ring-card" title={m.displayName || m.name}>
-                            <Avatar member={m} size={22} />
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {pm.length > 0 ? (
+                        <div className="flex -space-x-1.5">
+                          {pm.slice(0, 6).map((m) => (
+                            <span key={m.id} className="rounded-full ring-2 ring-card" title={m.displayName || m.name}>
+                              <Avatar member={m} size={22} />
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                      {isFullAdmin && (
+                        <button
+                          onClick={() => setManagingMembersOf(p)}
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label="担当者を管理"
+                        >
+                          <UserPlus className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1.5">
+                      {owner ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Avatar member={owner} size={22} />
+                          <span className="text-xs">{owner.displayName || owner.name}</span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                      {isFullAdmin && (
+                        <button
+                          onClick={() => setManagingOwnerOf(p)}
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label="責任者を編集"
+                        >
+                          <UserCog className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 tabular-nums text-muted-foreground">{taskCount}</td>
                   {isFullAdmin && (
@@ -358,6 +403,87 @@ export function AdminProjects() {
           <Button variant="ghost" className="h-9" onClick={() => setApplyingTo(null)}>
             閉じる
           </Button>
+        </div>
+      </Modal>
+
+      <Modal open={!!managingMembersOf} onClose={() => setManagingMembersOf(null)}>
+        <h2 className="text-base font-semibold">「{managingMembersOf?.name}」の担当者</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          このプロジェクトのタスクに誰かをアサインすると自動的にここへ追加されます。
+        </p>
+        <div className="mt-3 flex max-h-80 flex-col gap-1 overflow-auto orbit-scroll">
+          {members.map((m) => {
+            const checked = !!managingMembersOf?.memberIds?.includes(m.id)
+            return (
+              <button
+                key={m.id}
+                onClick={() => {
+                  if (!managingMembersOf) return
+                  const cur = managingMembersOf.memberIds ?? []
+                  const next = checked ? cur.filter((id) => id !== m.id) : [...cur, m.id]
+                  updateProjectMembers(managingMembersOf.id, next)
+                  setManagingMembersOf({ ...managingMembersOf, memberIds: next })
+                }}
+                className={cn(
+                  'flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm hover:bg-secondary',
+                  checked && 'bg-primary-muted',
+                )}
+              >
+                <Avatar member={m} size={28} />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{m.displayName || m.name}</div>
+                  <div className="text-xs text-muted-foreground">{m.affiliation}</div>
+                </div>
+                {checked && <Check className="size-4 shrink-0 text-primary" strokeWidth={3} />}
+              </button>
+            )
+          })}
+        </div>
+        <div className="mt-5 flex justify-end">
+          <Button className="h-9" onClick={() => setManagingMembersOf(null)}>
+            閉じる
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal open={!!managingOwnerOf} onClose={() => setManagingOwnerOf(null)}>
+        <h2 className="text-base font-semibold">「{managingOwnerOf?.name}」の責任者</h2>
+        <div className="mt-3 flex max-h-80 flex-col gap-1 overflow-auto orbit-scroll">
+          <button
+            onClick={() => {
+              if (!managingOwnerOf) return
+              updateProjectOwner(managingOwnerOf.id, null)
+              setManagingOwnerOf(null)
+            }}
+            className="flex items-center gap-2.5 rounded-lg border border-dashed border-border-strong px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
+          >
+            <Avatar member={null} size={28} />
+            未設定
+          </button>
+          {members.map((m) => {
+            const checked = managingOwnerOf?.ownerId === m.id
+            return (
+              <button
+                key={m.id}
+                onClick={() => {
+                  if (!managingOwnerOf) return
+                  updateProjectOwner(managingOwnerOf.id, m.id)
+                  setManagingOwnerOf(null)
+                }}
+                className={cn(
+                  'flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm hover:bg-secondary',
+                  checked && 'bg-primary-muted',
+                )}
+              >
+                <Avatar member={m} size={28} />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{m.displayName || m.name}</div>
+                  <div className="text-xs text-muted-foreground">{m.affiliation}</div>
+                </div>
+                {checked && <Check className="size-4 shrink-0 text-primary" strokeWidth={3} />}
+              </button>
+            )
+          })}
         </div>
       </Modal>
 

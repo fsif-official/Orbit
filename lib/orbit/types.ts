@@ -229,6 +229,12 @@ export interface Project {
   // project "kind" (e.g. コンテンツ開発) — drives which template tasks get
   // auto-created for it, see store.tsx's projectTemplates
   type?: string
+  // members assigned to this project (set from Admin → Projects, and
+  // grown automatically whenever someone is assigned a task in this
+  // project who isn't already on the list — see store.tsx's assignTask)
+  memberIds?: string[]
+  // 責任者 — the member accountable for this project overall
+  ownerId?: string
 }
 
 // A template task an admin defines for a Project type (store.tsx's
@@ -340,6 +346,9 @@ export interface Task {
   deliverables?: TaskDeliverable[]
   // audit trail of field changes (assignee/deadline/priority/status/reviewer)
   history?: TaskHistoryEntry[]
+  // discussion thread — distinct from progressHistory (which is a status
+  // update log, not a conversation)
+  comments?: TaskComment[]
 }
 
 export interface TaskDeliverable {
@@ -355,6 +364,13 @@ export interface TaskHistoryEntry {
   field: 'assignee' | 'deadline' | 'startDate' | 'priority' | 'status' | 'reviewer'
   from: string
   to: string
+}
+
+export interface TaskComment {
+  id: string
+  text: string
+  byId: string
+  at: string // ISO datetime
 }
 
 // Result of natural-language parsing, before approval

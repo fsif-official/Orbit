@@ -16,6 +16,7 @@ import type {
   RecurringTaskRule,
   Role,
   Task,
+  TaskComment,
   TaskDeliverable,
   TaskHistoryEntry,
   TaskSetTemplate,
@@ -64,7 +65,7 @@ const DEFAULT_SKILL_OPTIONS = [
   'イベント運営', 'メール', 'UI/UX', '実装', '企画', '要件定義', 'プロダクト設計', '校閲',
 ]
 const DEFAULT_CATEGORY_OPTIONS = [
-  'デザイン', '渉外', 'イベント', '広報', 'ライティング', '企画', 'リサーチ', '開発', '物品調達',
+  '未分類', 'デザイン', '渉外', 'イベント', '広報', 'ライティング', '企画', 'リサーチ', '開発', '物品調達',
 ]
 
 // Admin-defined permission levels above the fixed 一般 baseline (see
@@ -153,6 +154,8 @@ interface OrbitContextValue extends OrbitState {
   approveTask: (id: string) => void
   addProject: (name: string, description: string, type?: string) => void
   removeProject: (projectId: string) => void
+  updateProjectMembers: (projectId: string, memberIds: string[]) => void
+  updateProjectOwner: (projectId: string, ownerId: string | null) => void
   addMember: (name: string, email: string, affiliation: string, role: string) => void
   removeMember: (memberId: string) => void
   updateNotify: (memberId: string, notify: boolean) => void
@@ -176,6 +179,8 @@ interface OrbitContextValue extends OrbitState {
   setBlocker: (id: string, note: string | null) => void
   addDeliverable: (id: string, label: string, url: string) => void
   removeDeliverable: (id: string, deliverableId: string) => void
+  addComment: (id: string, text: string) => void
+  removeComment: (id: string, commentId: string) => void
   updateAvatar: (memberId: string, avatarColor: string, initials: string) => void
   uploadAvatarImage: (memberId: string, dataUrl: string, filename: string) => Promise<void>
   notifications: import('./types').NotificationItem[]
@@ -1034,8 +1039,25 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         ),
       )
       if (isRemoteConfigured) runRemote(remoteApi.assignTask(id, memberIds))
+
+      // a newly assigned member who isn't already on the task's project
+      // gets added there too (item: プロジェクトの担当者を決めれるように)
+      const task = tasks.find((t) => t.id === id)
+      if (task) {
+        setProjects((prev) =>
+          prev.map((p) => {
+            if (p.id !== task.projectId) return p
+            const existing = new Set(p.memberIds ?? [])
+            const additions = memberIds.filter((mid) => !existing.has(mid))
+            if (additions.length === 0) return p
+            const nextMemberIds = [...(p.memberIds ?? []), ...additions]
+            if (isRemoteConfigured) runRemote(remoteApi.updateProjectMembers(p.id, nextMemberIds))
+            return { ...p, memberIds: nextMemberIds }
+          }),
+        )
+      }
     },
-    [appendHistory, runRemote],
+    [tasks, appendHistory, runRemote],
   )
 
   const updateWill = useCallback(
@@ -1145,6 +1167,28 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         ),
       )
       if (isRemoteConfigured) runRemote(remoteApi.removeProject(projectId))
+    },
+    [runRemote],
+  )
+
+  // manual project membership (Admin → Projects) — grown automatically by
+  // assignTask too, this covers explicitly adding/removing someone who
+  // isn't (yet) assigned to any of the project's tasks
+  const updateProjectMembers = useCallback(
+    (projectId: string, memberIds: string[]) => {
+      setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, memberIds } : p)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateProjectMembers(projectId, memberIds))
+    },
+    [runRemote],
+  )
+
+  // 責任者 — the member accountable for the project overall
+  const updateProjectOwner = useCallback(
+    (projectId: string, ownerId: string | null) => {
+      setProjects((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, ownerId: ownerId ?? undefined } : p)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateProjectOwner(projectId, ownerId))
     },
     [runRemote],
   )
@@ -1348,6 +1392,43 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           const next = (t.deliverables ?? []).filter((d) => d.id !== deliverableId)
           if (isRemoteConfigured) runRemote(remoteApi.updateDeliverables(id, next))
           return { ...t, deliverables: next }
+        }),
+      )
+    },
+    [runRemote],
+  )
+
+  // コメント機能 — a discussion thread on the task, separate from
+  // progressHistory (a status-update log, not a conversation)
+  const addComment = useCallback(
+    (id: string, text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed) return
+      const entry: TaskComment = {
+        id: `cm-${Math.random().toString(36).slice(2, 9)}`,
+        text: trimmed,
+        byId: currentUserId ?? '',
+        at: new Date().toISOString(),
+      }
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          const next = [...(t.comments ?? []), entry]
+          if (isRemoteConfigured) runRemote(remoteApi.updateComments(id, next))
+          return { ...t, comments: next }
+        }),
+      )
+    },
+    [currentUserId, runRemote],
+  )
+  const removeComment = useCallback(
+    (id: string, commentId: string) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          const next = (t.comments ?? []).filter((c) => c.id !== commentId)
+          if (isRemoteConfigured) runRemote(remoteApi.updateComments(id, next))
+          return { ...t, comments: next }
         }),
       )
     },
@@ -1622,6 +1703,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     approveTask,
     addProject,
     removeProject,
+    updateProjectMembers,
+    updateProjectOwner,
     addMember,
     removeMember,
     updateNotify,
@@ -1641,6 +1724,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     setBlocker,
     addDeliverable,
     removeDeliverable,
+    addComment,
+    removeComment,
     updateAvatar,
     uploadAvatarImage,
     notifications,

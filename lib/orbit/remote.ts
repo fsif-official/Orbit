@@ -16,6 +16,7 @@ import type {
   RecurringTaskRule,
   Role,
   Task,
+  TaskComment,
   TaskDeliverable,
   TaskHistoryEntry,
   TaskSetTemplate,
@@ -192,7 +193,15 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
 }
 
 function mapProjectRow(r: Record<string, string>): Project {
-  return { id: r.id, name: r.name, description: r.description ?? '', type: r.type || undefined }
+  const memberIds = splitTags(r.member_ids)
+  return {
+    id: r.id,
+    name: r.name,
+    description: r.description ?? '',
+    type: r.type || undefined,
+    memberIds: memberIds.length > 0 ? memberIds : undefined,
+    ownerId: r.owner_id || undefined,
+  }
 }
 
 const STATUS_FROM_LABEL: Record<string, TaskStatus> = Object.fromEntries(
@@ -234,6 +243,7 @@ function mapTaskRow(r: Record<string, string>): Task {
     blocker: r.blocker_note ? { note: r.blocker_note, since: r.blocker_since || '' } : undefined,
     deliverables: parseJsonArray<TaskDeliverable>(r.deliverables_json),
     history: parseJsonArray<TaskHistoryEntry>(r.history_json),
+    comments: parseJsonArray<TaskComment>(r.comments_json),
   }
 }
 
@@ -422,6 +432,12 @@ export const remoteApi = {
     postToGas('updateDeliverables', { taskId, deliverables }),
   updateHistory: (taskId: string, history: TaskHistoryEntry[]) =>
     postToGas('updateHistory', { taskId, history }),
+  updateProjectMembers: (projectId: string, memberIds: string[]) =>
+    postToGas('updateProjectMembers', { projectId, memberIds }),
+  updateProjectOwner: (projectId: string, ownerId: string | null) =>
+    postToGas('updateProjectOwner', { projectId, ownerId }),
+  updateComments: (taskId: string, comments: TaskComment[]) =>
+    postToGas('updateComments', { taskId, comments }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to
