@@ -76,18 +76,6 @@ export function Header() {
               <ArrowLeft className="size-[18px]" />
             </button>
           )}
-          {remoteEnabled && (
-            <button
-              type="button"
-              onClick={refreshAll}
-              disabled={refreshing}
-              className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
-              aria-label="情報を更新"
-              title="情報を更新"
-            >
-              <RefreshCw className={cn('size-[18px]', refreshing && 'animate-spin')} />
-            </button>
-          )}
           <button
             type="button"
             onClick={() => handleMode('output')}
@@ -181,6 +169,18 @@ export function Header() {
             )}
           </div>
 
+          {remoteEnabled && (
+            <button
+              type="button"
+              onClick={refreshAll}
+              disabled={refreshing}
+              className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
+              aria-label="情報を更新"
+              title="情報を更新"
+            >
+              <RefreshCw className={cn('size-[18px]', refreshing && 'animate-spin')} />
+            </button>
+          )}
           <div className="relative" ref={menuRef}>
             <button
               type="button"
