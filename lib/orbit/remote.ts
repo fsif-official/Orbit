@@ -13,8 +13,12 @@ import type {
   Priority,
   Project,
   ProjectTemplateTask,
+  RecurringTaskRule,
   Role,
   Task,
+  TaskDeliverable,
+  TaskHistoryEntry,
+  TaskSetTemplate,
   TaskStatus,
 } from './types'
 import { STATUS_LABEL, isAdminRole } from './types'
@@ -226,6 +230,22 @@ function mapTaskRow(r: Record<string, string>): Task {
     pendingApproval: r.approval_status === '承認待ち',
     dependsOnIds: splitTags(r.depends_on_ids),
     visibility: r.visibility === '幹部' ? '幹部' : 'all',
+    reviewerId: r.reviewer_id || undefined,
+    blocker: r.blocker_note ? { note: r.blocker_note, since: r.blocker_since || '' } : undefined,
+    deliverables: parseJsonArray<TaskDeliverable>(r.deliverables_json),
+    history: parseJsonArray<TaskHistoryEntry>(r.history_json),
+  }
+}
+
+// Parses an optional JSON-array cell (deliverables_json/history_json) —
+// missing/malformed content just comes back empty rather than throwing.
+function parseJsonArray<T>(raw: string | undefined): T[] | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as T[]) : undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -257,6 +277,8 @@ export interface RemoteSettings {
   roleLevels: string[]
   projectTemplates: Record<string, ProjectTemplateTask[]>
   rolePermissions: Record<string, AdminSection[]>
+  taskSetTemplates: TaskSetTemplate[]
+  recurringRules: RecurringTaskRule[]
 }
 
 // Reads the optional "Settings" sheet (key,value rows) — see
@@ -280,12 +302,28 @@ export async function fetchSettings(): Promise<RemoteSettings> {
   } catch {
     // malformed JSON in the sheet — fall back to empty rather than throwing
   }
+  let taskSetTemplates: TaskSetTemplate[] = []
+  try {
+    const raw = byKey.get('task_set_templates')
+    if (raw) taskSetTemplates = JSON.parse(raw)
+  } catch {
+    // malformed JSON in the sheet — fall back to empty rather than throwing
+  }
+  let recurringRules: RecurringTaskRule[] = []
+  try {
+    const raw = byKey.get('recurring_rules')
+    if (raw) recurringRules = JSON.parse(raw)
+  } catch {
+    // malformed JSON in the sheet — fall back to empty rather than throwing
+  }
   return {
     skillOptions: splitTags(byKey.get('skill_options')),
     categoryOptions: splitTags(byKey.get('category_options')),
     roleLevels: splitTags(byKey.get('role_levels')),
     projectTemplates,
     rolePermissions,
+    taskSetTemplates,
+    recurringRules,
   }
 }
 
@@ -376,6 +414,14 @@ export const remoteApi = {
   updateSetting: (key: string, value: string) => postToGas('updateSetting', { key, value }),
   updateMemberProjects: (memberId: string, projectIds: string[]) =>
     postToGas('updateMemberProjects', { memberId, projectIds }),
+  updateReviewer: (taskId: string, reviewerId: string | null) =>
+    postToGas('updateReviewer', { taskId, reviewerId }),
+  setBlocker: (taskId: string, note: string | null, since: string | null) =>
+    postToGas('setBlocker', { taskId, note, since }),
+  updateDeliverables: (taskId: string, deliverables: TaskDeliverable[]) =>
+    postToGas('updateDeliverables', { taskId, deliverables }),
+  updateHistory: (taskId: string, history: TaskHistoryEntry[]) =>
+    postToGas('updateHistory', { taskId, history }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to

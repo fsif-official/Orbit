@@ -13,8 +13,13 @@ import type {
   Member,
   Project,
   ProjectTemplateTask,
+  RecurringTaskRule,
   Role,
   Task,
+  TaskDeliverable,
+  TaskHistoryEntry,
+  TaskSetTemplate,
+  TaskSetTemplateItem,
   TaskStatus,
   Priority,
   Difficulty,
@@ -22,7 +27,13 @@ import type {
   ParsedTask,
   ProgressEntry,
 } from './types'
-import { canSeeExecTasks, BASE_ROLE, DEFAULT_NON_TOP_SECTIONS, ADMIN_SECTIONS } from './types'
+import {
+  canSeeExecTasks,
+  BASE_ROLE,
+  DEFAULT_NON_TOP_SECTIONS,
+  ADMIN_SECTIONS,
+  STATUS_LABEL,
+} from './types'
 import { MEMBERS, PROJECTS, SEED_TASKS, SEED_INPUTS } from './seed'
 import {
   colorForId,
@@ -113,6 +124,15 @@ interface OrbitContextValue extends OrbitState {
   projectTypes: string[]
   setProjectTemplateTasks: (type: string, tasks: ProjectTemplateTask[]) => void
   removeProjectType: (type: string) => void
+  taskSetTemplates: TaskSetTemplate[]
+  addTaskSetTemplate: (name: string, description: string) => void
+  updateTaskSetTemplateItems: (templateId: string, items: TaskSetTemplateItem[]) => void
+  removeTaskSetTemplate: (templateId: string) => void
+  applyTaskSetTemplate: (templateId: string, projectId: string) => void
+  recurringRules: RecurringTaskRule[]
+  addRecurringRule: (rule: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => void
+  removeRecurringRule: (ruleId: string) => void
+  toggleRecurringRule: (ruleId: string) => void
   needsOnboarding: boolean
   completeOnboarding: (will: string[]) => void
   skipOnboarding: () => void
@@ -152,6 +172,10 @@ interface OrbitContextValue extends OrbitState {
   toggleUnavailableDate: (memberId: string, date: string) => void
   updateSchedule: (id: string, startDate: string | null, deadline: string | null) => void
   updateDependsOn: (id: string, dependsOnIds: string[]) => void
+  updateReviewer: (id: string, reviewerId: string | null) => void
+  setBlocker: (id: string, note: string | null) => void
+  addDeliverable: (id: string, label: string, url: string) => void
+  removeDeliverable: (id: string, deliverableId: string) => void
   updateAvatar: (memberId: string, avatarColor: string, initials: string) => void
   uploadAvatarImage: (memberId: string, dataUrl: string, filename: string) => Promise<void>
   notifications: import('./types').NotificationItem[]
@@ -167,6 +191,8 @@ const TAGS_STORAGE_KEY = 'orbit-tag-options'
 const ONBOARDED_STORAGE_KEY = 'orbit-onboarded-ids'
 const TEMPLATES_STORAGE_KEY = 'orbit-project-templates'
 const ROLE_PERMS_STORAGE_KEY = 'orbit-role-permissions'
+const TASK_SET_TEMPLATES_STORAGE_KEY = 'orbit-task-set-templates'
+const RECURRING_RULES_STORAGE_KEY = 'orbit-recurring-rules'
 
 function loadState(): Partial<OrbitState> | null {
   if (typeof window === 'undefined') return null
@@ -218,6 +244,26 @@ function loadRolePermissions(): Record<string, AdminSection[]> {
   }
 }
 
+function loadTaskSetTemplates(): TaskSetTemplate[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(TASK_SET_TEMPLATES_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function loadRecurringRules(): RecurringTaskRule[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(RECURRING_RULES_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
 function uniq(list: string[]): string[] {
   return Array.from(new Set(list.map((s) => s.trim()).filter(Boolean)))
 }
@@ -237,6 +283,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const [roleLevels, setRoleLevels] = useState<string[]>(DEFAULT_ROLE_LEVELS)
   const [rolePermissions, setRolePermissionsState] = useState<Record<string, AdminSection[]>>({})
   const [projectTemplates, setProjectTemplates] = useState<Record<string, ProjectTemplateTask[]>>({})
+  const [taskSetTemplates, setTaskSetTemplates] = useState<TaskSetTemplate[]>([])
+  const [recurringRules, setRecurringRules] = useState<RecurringTaskRule[]>([])
   const [onboardedIds, setOnboardedIds] = useState<Set<string>>(new Set())
   const [skillCertifiedEvent, setSkillCertifiedEvent] = useState<{
     memberName: string
@@ -281,6 +329,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       }
       setProjectTemplates(loadProjectTemplates())
       setRolePermissionsState(loadRolePermissions())
+      setTaskSetTemplates(loadTaskSetTemplates())
+      setRecurringRules(loadRecurringRules())
     }
     setOnboardedIds(new Set(loadOnboardedIds()))
     setHydrated(true)
@@ -318,10 +368,83 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         setRoleLevels(s.roleLevels.length ? uniq(s.roleLevels) : DEFAULT_ROLE_LEVELS)
         setProjectTemplates(s.projectTemplates)
         setRolePermissionsState(s.rolePermissions)
+        setTaskSetTemplates(s.taskSetTemplates)
+        setRecurringRules(s.recurringRules)
         setRemoteError(null)
       })
       .catch(reportRemoteError)
   }, [reportRemoteError])
+
+  // 定期タスク generation check (item 2) — there's no server-side cron in
+  // this GAS + static-export architecture, so a due rule is generated
+  // client-side whenever any member's browser loads the app on the
+  // matching day. Each rule tracks lastGeneratedDate so it only fires once
+  // per day regardless of how many times/people load the app that day.
+  useEffect(() => {
+    if (!hydrated || recurringRules.length === 0) return
+    const now = new Date()
+    const todayStr = now.toISOString().slice(0, 10)
+    const dow = now.getDay()
+    const dom = now.getDate()
+
+    recurringRules.forEach((rule) => {
+      if (!rule.active || rule.lastGeneratedDate === todayStr) return
+      const due = rule.frequency === 'weekly' ? rule.dayOfWeek === dow : rule.dayOfMonth === dom
+      if (!due) return
+
+      const deadline =
+        rule.dueInDays != null
+          ? new Date(now.getTime() + rule.dueInDays * 86400000).toISOString().slice(0, 10)
+          : null
+      const newTask: Task = {
+        id: `t-${Math.random().toString(36).slice(2, 9)}`,
+        name: rule.name,
+        description: '',
+        projectId: rule.projectId,
+        department: rule.department,
+        assigneeIds: [],
+        deadline,
+        category: rule.category,
+        skills: rule.skills,
+        difficulty: rule.difficulty,
+        priority: rule.priority,
+        status: 'todo',
+        lastActivity: todayStr,
+        createdAt: now.toISOString(),
+        progressHistory: [],
+        pendingApproval: false,
+      }
+      setTasks((prev) => [newTask, ...prev])
+      setRecurringRules((prev) => {
+        const next = prev.map((r) => (r.id === rule.id ? { ...r, lastGeneratedDate: todayStr } : r))
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('recurring_rules', JSON.stringify(next)))
+        return next
+      })
+      if (isRemoteConfigured) {
+        remoteApi
+          .createTasks([
+            {
+              tempId: newTask.id,
+              title: newTask.name,
+              projectId: rule.projectId,
+              department: rule.department,
+              category: rule.category,
+              skills: rule.skills,
+              difficulty: rule.difficulty,
+              priority: rule.priority,
+              deadline,
+              pendingApproval: false,
+            },
+          ])
+          .then((mapping) => {
+            const realId = mapping[0]?.id
+            if (realId) setTasks((prev) => prev.map((t) => (t.id === newTask.id ? { ...t, id: realId } : t)))
+          })
+          .catch(reportRemoteError)
+      }
+    })
+  }, [hydrated, recurringRules, reportRemoteError, runRemote])
 
   // keep the skill/category pools growing with whatever actually shows up
   // on tasks (from the sheet or elsewhere), not just manually-added ones
@@ -393,6 +516,25 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
   }, [rolePermissions, hydrated])
+
+  // persist task-set templates and recurring-task rules (device-local, same caveat)
+  useEffect(() => {
+    if (!hydrated || isSettingsConfigured) return
+    try {
+      window.localStorage.setItem(TASK_SET_TEMPLATES_STORAGE_KEY, JSON.stringify(taskSetTemplates))
+    } catch {
+      /* ignore */
+    }
+  }, [taskSetTemplates, hydrated])
+
+  useEffect(() => {
+    if (!hydrated || isSettingsConfigured) return
+    try {
+      window.localStorage.setItem(RECURRING_RULES_STORAGE_KEY, JSON.stringify(recurringRules))
+    } catch {
+      /* ignore */
+    }
+  }, [recurringRules, hydrated])
 
   const login = useCallback((userId: string) => {
     setCurrentUserId(userId)
@@ -514,6 +656,173 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [projectTemplates, runRemote],
   )
 
+  // 業務テンプレート (item 1) — reusable, on-demand task-set templates
+  // (distinct from projectTemplates above, which only auto-apply once at
+  // project creation, keyed by project type)
+  const addTaskSetTemplate = useCallback(
+    (name: string, description: string) => {
+      const trimmed = name.trim()
+      if (!trimmed) return
+      const entry: TaskSetTemplate = {
+        id: `tst-${Math.random().toString(36).slice(2, 9)}`,
+        name: trimmed,
+        description: description.trim() || undefined,
+        items: [],
+      }
+      setTaskSetTemplates((prev) => {
+        const next = [...prev, entry]
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('task_set_templates', JSON.stringify(next)))
+        return next
+      })
+    },
+    [runRemote],
+  )
+  const updateTaskSetTemplateItems = useCallback(
+    (templateId: string, items: TaskSetTemplateItem[]) => {
+      setTaskSetTemplates((prev) => {
+        const next = prev.map((t) => (t.id === templateId ? { ...t, items } : t))
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('task_set_templates', JSON.stringify(next)))
+        return next
+      })
+    },
+    [runRemote],
+  )
+  const removeTaskSetTemplate = useCallback(
+    (templateId: string) => {
+      setTaskSetTemplates((prev) => {
+        const next = prev.filter((t) => t.id !== templateId)
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('task_set_templates', JSON.stringify(next)))
+        return next
+      })
+    },
+    [runRemote],
+  )
+
+  // Generates real tasks (in the given project) from a template's items,
+  // resolving each item's template-local dependsOn ids into real task ids
+  // once the remote createTasks call (when configured) returns them.
+  const applyTaskSetTemplate = useCallback(
+    (templateId: string, projectId: string) => {
+      const template = taskSetTemplates.find((t) => t.id === templateId)
+      if (!template || template.items.length === 0) return
+
+      const today = new Date().toISOString().slice(0, 10)
+      const tempIdByItemId = new Map(
+        template.items.map((item) => [item.id, `t-${Math.random().toString(36).slice(2, 9)}`]),
+      )
+
+      const newTasks: Task[] = template.items.map((item) => ({
+        id: tempIdByItemId.get(item.id)!,
+        name: item.name,
+        description: '',
+        projectId,
+        department: item.department,
+        assigneeIds: [],
+        deadline: null,
+        category: item.category,
+        skills: item.skills,
+        difficulty: item.difficulty,
+        priority: item.priority,
+        status: 'todo',
+        lastActivity: today,
+        createdById: currentUserId ?? undefined,
+        createdAt: new Date().toISOString(),
+        progressHistory: [],
+        pendingApproval: false, // admin-initiated, same as project-type templates
+        dependsOnIds: (item.dependsOn ?? [])
+          .map((localId) => tempIdByItemId.get(localId))
+          .filter((id): id is string => !!id),
+      }))
+
+      setTasks((prev) => [...newTasks, ...prev])
+
+      if (isRemoteConfigured) {
+        const payloads = newTasks.map((t) => ({
+          tempId: t.id,
+          title: t.name,
+          projectId,
+          department: t.department,
+          category: t.category,
+          skills: t.skills,
+          difficulty: t.difficulty,
+          priority: t.priority,
+          deadline: null,
+          creatorId: currentUserId ?? undefined,
+          pendingApproval: false,
+        }))
+        remoteApi
+          .createTasks(payloads)
+          .then((mapping) => {
+            const realId = new Map(mapping.map((m) => [m.tempId, m.id]))
+            setTasks((prev) =>
+              prev.map((t) =>
+                realId.has(t.id)
+                  ? {
+                      ...t,
+                      id: realId.get(t.id)!,
+                      dependsOnIds: (t.dependsOnIds ?? []).map((depId) => realId.get(depId) ?? depId),
+                    }
+                  : t,
+              ),
+            )
+            newTasks.forEach((t) => {
+              if (!t.dependsOnIds || t.dependsOnIds.length === 0) return
+              const resolvedId = realId.get(t.id)
+              if (!resolvedId) return
+              const resolvedDeps = t.dependsOnIds.map((depId) => realId.get(depId) ?? depId)
+              runRemote(remoteApi.updateDependsOn(resolvedId, resolvedDeps))
+            })
+            setRemoteError(null)
+          })
+          .catch(reportRemoteError)
+      }
+    },
+    [taskSetTemplates, currentUserId, reportRemoteError, runRemote],
+  )
+
+  // 定期タスク (item 2) — admin-defined recurring generation rules
+  const addRecurringRule = useCallback(
+    (rule: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => {
+      const entry: RecurringTaskRule = {
+        ...rule,
+        id: `rr-${Math.random().toString(36).slice(2, 9)}`,
+        active: true,
+      }
+      setRecurringRules((prev) => {
+        const next = [...prev, entry]
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('recurring_rules', JSON.stringify(next)))
+        return next
+      })
+    },
+    [runRemote],
+  )
+  const removeRecurringRule = useCallback(
+    (ruleId: string) => {
+      setRecurringRules((prev) => {
+        const next = prev.filter((r) => r.id !== ruleId)
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('recurring_rules', JSON.stringify(next)))
+        return next
+      })
+    },
+    [runRemote],
+  )
+  const toggleRecurringRule = useCallback(
+    (ruleId: string) => {
+      setRecurringRules((prev) => {
+        const next = prev.map((r) => (r.id === ruleId ? { ...r, active: !r.active } : r))
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('recurring_rules', JSON.stringify(next)))
+        return next
+      })
+    },
+    [runRemote],
+  )
+
   const addTasksFromInput = useCallback(
     (text: string, parsed: ParsedTask[]) => {
       const inputId = `in-${Math.random().toString(36).slice(2, 9)}`
@@ -587,12 +896,36 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [currentUserId, reportRemoteError],
   )
 
+  // records a field change onto a task's audit trail (Admin → task detail
+  // "変更履歴") — a no-op when the value didn't actually change. Capped so
+  // a churny task doesn't grow the row without bound.
+  const HISTORY_CAP = 50
+  const appendHistory = useCallback(
+    (t: Task, field: TaskHistoryEntry['field'], from: string, to: string): Task => {
+      if (from === to) return t
+      const entry: TaskHistoryEntry = {
+        id: `h-${Math.random().toString(36).slice(2, 9)}`,
+        at: new Date().toISOString(),
+        byId: currentUserId ?? '',
+        field,
+        from,
+        to,
+      }
+      const history = [entry, ...(t.history ?? [])].slice(0, HISTORY_CAP)
+      if (isRemoteConfigured) runRemote(remoteApi.updateHistory(t.id, history))
+      return { ...t, history }
+    },
+    [currentUserId, runRemote],
+  )
+
   const updatePriority = useCallback(
     (id: string, priority: Priority) => {
-      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, priority } : t)))
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? appendHistory({ ...t, priority }, 'priority', t.priority, priority) : t)),
+      )
       if (isRemoteConfigured) runRemote(remoteApi.updatePriority(id, priority))
     },
-    [runRemote],
+    [appendHistory, runRemote],
   )
 
   const updateDifficulty = useCallback(
@@ -663,12 +996,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       const today = new Date().toISOString().slice(0, 10)
       const updated = tasks.map((t) =>
         t.id === id
-          ? {
-              ...t,
-              status,
-              lastActivity: today,
-              completedDate: status === 'done' ? today : null,
-            }
+          ? appendHistory(
+              {
+                ...t,
+                status,
+                lastActivity: today,
+                completedDate: status === 'done' ? today : null,
+              },
+              'status',
+              STATUS_LABEL[t.status],
+              STATUS_LABEL[status],
+            )
           : t,
       )
       setTasks(updated)
@@ -678,15 +1016,26 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       // in the Admin dashboard's 確認待ち panel automatically.
       if (isRemoteConfigured) runRemote(remoteApi.updateTaskStatus(id, status))
     },
-    [tasks, maybeCertifySkill, runRemote],
+    [tasks, maybeCertifySkill, appendHistory, runRemote],
   )
 
   const assignTask = useCallback(
     (id: string, memberIds: string[]) => {
-      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, assigneeIds: memberIds } : t)))
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? appendHistory(
+                { ...t, assigneeIds: memberIds },
+                'assignee',
+                t.assigneeIds.join(','),
+                memberIds.join(','),
+              )
+            : t,
+        ),
+      )
       if (isRemoteConfigured) runRemote(remoteApi.assignTask(id, memberIds))
     },
-    [runRemote],
+    [appendHistory, runRemote],
   )
 
   const updateWill = useCallback(
@@ -920,16 +1269,87 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
 
   const updateSchedule = useCallback(
     (id: string, startDate: string | null, deadline: string | null) => {
-      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, startDate, deadline } : t)))
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          let next: Task = { ...t, startDate, deadline }
+          next = appendHistory(next, 'deadline', t.deadline ?? '', deadline ?? '')
+          next = appendHistory(next, 'startDate', t.startDate ?? '', startDate ?? '')
+          return next
+        }),
+      )
       if (isRemoteConfigured) runRemote(remoteApi.updateSchedule(id, startDate, deadline))
     },
-    [runRemote],
+    [appendHistory, runRemote],
   )
 
   const updateDependsOn = useCallback(
     (id: string, dependsOnIds: string[]) => {
       setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, dependsOnIds } : t)))
       if (isRemoteConfigured) runRemote(remoteApi.updateDependsOn(id, dependsOnIds))
+    },
+    [runRemote],
+  )
+
+  // "確認者" — distinct from assigneeIds, pairs with the 確認待ち status so
+  // it's clear who's expected to sign off (item 8: 確認者・レビュワー設定)
+  const updateReviewer = useCallback(
+    (id: string, reviewerId: string | null) => {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? appendHistory({ ...t, reviewerId: reviewerId ?? undefined }, 'reviewer', t.reviewerId ?? '', reviewerId ?? '')
+            : t,
+        ),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateReviewer(id, reviewerId))
+    },
+    [appendHistory, runRemote],
+  )
+
+  // "困っている/作業が止まっている" flag, independent of status (item 7:
+  // ブロッカー管理) — pass null/empty to clear
+  const setBlocker = useCallback(
+    (id: string, note: string | null) => {
+      const trimmed = note?.trim() || null
+      const since = trimmed ? new Date().toISOString().slice(0, 10) : null
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, blocker: trimmed ? { note: trimmed, since: since! } : undefined } : t)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.setBlocker(id, trimmed, since))
+    },
+    [runRemote],
+  )
+
+  // 成果物リンク管理（item 12） — Drive/Canva/GitHub/Figma等へのリンクを
+  // タスクに複数紐付ける
+  const addDeliverable = useCallback(
+    (id: string, label: string, url: string) => {
+      const l = label.trim()
+      const u = url.trim()
+      if (!l || !u) return
+      const entry: TaskDeliverable = { id: `dl-${Math.random().toString(36).slice(2, 9)}`, label: l, url: u }
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          const next = [...(t.deliverables ?? []), entry]
+          if (isRemoteConfigured) runRemote(remoteApi.updateDeliverables(id, next))
+          return { ...t, deliverables: next }
+        }),
+      )
+    },
+    [runRemote],
+  )
+  const removeDeliverable = useCallback(
+    (id: string, deliverableId: string) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          const next = (t.deliverables ?? []).filter((d) => d.id !== deliverableId)
+          if (isRemoteConfigured) runRemote(remoteApi.updateDeliverables(id, next))
+          return { ...t, deliverables: next }
+        }),
+      )
     },
     [runRemote],
   )
@@ -1174,6 +1594,15 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     projectTypes,
     setProjectTemplateTasks,
     removeProjectType,
+    taskSetTemplates,
+    addTaskSetTemplate,
+    updateTaskSetTemplateItems,
+    removeTaskSetTemplate,
+    applyTaskSetTemplate,
+    recurringRules,
+    addRecurringRule,
+    removeRecurringRule,
+    toggleRecurringRule,
     needsOnboarding,
     completeOnboarding,
     skipOnboarding,
@@ -1208,6 +1637,10 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     toggleUnavailableDate,
     updateSchedule,
     updateDependsOn,
+    updateReviewer,
+    setBlocker,
+    addDeliverable,
+    removeDeliverable,
     updateAvatar,
     uploadAvatarImage,
     notifications,

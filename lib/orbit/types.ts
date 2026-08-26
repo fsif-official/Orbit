@@ -244,6 +244,54 @@ export interface ProjectTemplateTask {
   priority: Priority
 }
 
+// A reusable named task-set template (item 1: タスクのテンプレート化, e.g.
+// "イベント開催") — distinct from ProjectTemplateTask/projectTemplates
+// (which auto-apply once, at project creation, keyed by project type).
+// This kind can be applied on demand to any existing project, and each
+// item can depend on other items in the same template so the generated
+// tasks come out pre-wired with dependsOnIds (item 1's "前提タスク構造も
+// テンプレート化").
+export interface TaskSetTemplateItem {
+  id: string // template-local id — referenced by dependsOn within this template
+  name: string
+  department: Department
+  category: string
+  skills: string[]
+  difficulty: Difficulty
+  priority: Priority
+  dependsOn?: string[] // template-local ids of prerequisite items in this template
+}
+
+export interface TaskSetTemplate {
+  id: string
+  name: string
+  description?: string
+  items: TaskSetTemplateItem[]
+}
+
+// 定期タスク (item 2) — an admin-defined rule that auto-generates one task
+// on a weekly/monthly cadence. There's no server-side cron available in
+// this GAS + static-export architecture, so generation is checked
+// client-side on load (store.tsx) against lastGeneratedDate.
+export type RecurrenceFrequency = 'weekly' | 'monthly'
+
+export interface RecurringTaskRule {
+  id: string
+  name: string
+  projectId: string
+  department: Department
+  category: string
+  skills: string[]
+  difficulty: Difficulty
+  priority: Priority
+  frequency: RecurrenceFrequency
+  dayOfWeek?: number // 0 (Sun) – 6 (Sat), for frequency 'weekly'
+  dayOfMonth?: number // 1–28, for frequency 'monthly' (capped to stay valid in every month)
+  dueInDays?: number // deadline offset in days from the generated task's creation date
+  active: boolean
+  lastGeneratedDate?: string // YYYY-MM-DD — the last date this rule generated a task for
+}
+
 export interface Task {
   id: string
   name: string
@@ -277,6 +325,36 @@ export interface Task {
   dependsOnIds?: string[]
   // '幹部' restricts visibility to 班長/代表 (see canSeeExecTasks); undefined/'all' = everyone
   visibility?: 'all' | '幹部'
+  // distinct from assigneeIds — who signs off on this task (pairs with the
+  // 'review' status). Unset = no particular reviewer, any admin can review.
+  reviewerId?: string
+  // "困っている/作業が止まっている" — separate from status so a task can be
+  // flagged blocked without losing its in-progress status; cleared (undefined)
+  // once resolved
+  blocker?: {
+    note: string
+    since: string // YYYY-MM-DD
+  }
+  // links to where the finished work lives (Drive/Canva/GitHub/Figma/…) —
+  // also reused on the assignee's achievements page
+  deliverables?: TaskDeliverable[]
+  // audit trail of field changes (assignee/deadline/priority/status/reviewer)
+  history?: TaskHistoryEntry[]
+}
+
+export interface TaskDeliverable {
+  id: string
+  label: string
+  url: string
+}
+
+export interface TaskHistoryEntry {
+  id: string
+  at: string // ISO datetime
+  byId: string
+  field: 'assignee' | 'deadline' | 'startDate' | 'priority' | 'status' | 'reviewer'
+  from: string
+  to: string
 }
 
 // Result of natural-language parsing, before approval

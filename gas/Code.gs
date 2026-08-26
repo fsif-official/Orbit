@@ -123,6 +123,25 @@ function doPost(e) {
           visibility: body.visibility === '幹部' ? '幹部' : '全員',
         })
         break
+      case 'updateReviewer':
+        result = updateTaskFields(body.taskId, { reviewer_id: body.reviewerId || '' })
+        break
+      case 'setBlocker':
+        result = updateTaskFields(body.taskId, {
+          blocker_note: body.note || '',
+          blocker_since: body.note ? body.since || todayStr() : '',
+        })
+        break
+      case 'updateDeliverables':
+        result = updateTaskFields(body.taskId, {
+          deliverables_json: JSON.stringify(body.deliverables || []),
+        })
+        break
+      case 'updateHistory':
+        result = updateTaskFields(body.taskId, {
+          history_json: JSON.stringify(body.history || []),
+        })
+        break
       case 'updateAvatar':
         // choosing a color+initials avatar supersedes any uploaded picture
         result = updateMemberFields(body.memberId, {
