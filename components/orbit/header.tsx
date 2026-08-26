@@ -19,21 +19,35 @@ import {
   LogOut,
   Moon,
   RefreshCw,
+  Search,
   ShieldCheck,
   Sun,
   User,
+  X,
 } from 'lucide-react'
 
 export function Header() {
-  const { currentUser, setMode, logout, notifications, remoteEnabled, refreshing, refreshAll } =
-    useOrbit()
+  const {
+    currentUser,
+    setMode,
+    logout,
+    notifications,
+    remoteEnabled,
+    refreshing,
+    refreshAll,
+    visibleTasks: tasks,
+    getProject,
+  } = useOrbit()
   const { screen, go, goBack, canGoBack } = useNav()
   const { theme, toggle } = useTheme()
   const { openTask } = useTaskDrawer()
   const [menuOpen, setMenuOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
   const notifRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -42,6 +56,9 @@ export function Header() {
       }
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
         setNotifOpen(false)
+      }
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false)
       }
     }
     document.addEventListener('mousedown', onClick)
@@ -54,6 +71,40 @@ export function Header() {
     setMode(m)
     go({ name: m })
   }
+
+  // item 19: 組織ナレッジ横断検索 — searches task names/descriptions/
+  // progress notes/comments/deliverables/振り返り for a query, so past
+  // decisions and know-how surface even if you don't remember which task
+  // they're on. Matches within visibleTasks only (same visibility rules
+  // as everywhere else).
+  const searchResults = (() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return []
+    return tasks
+      .map((t) => {
+        let snippet: string | null = null
+        if (t.name.toLowerCase().includes(q)) snippet = t.name
+        else if (t.description?.toLowerCase().includes(q)) snippet = t.description
+        else if (t.progress?.toLowerCase().includes(q)) snippet = t.progress
+        else {
+          const comment = t.comments?.find((c) => c.text.toLowerCase().includes(q))
+          if (comment) snippet = comment.text
+          else {
+            const deliverable = t.deliverables?.find((d) => d.label.toLowerCase().includes(q))
+            if (deliverable) snippet = deliverable.label
+            else if (t.retrospective) {
+              const r = t.retrospective
+              if (r.good?.toLowerCase().includes(q)) snippet = r.good
+              else if (r.bad?.toLowerCase().includes(q)) snippet = r.bad
+              else if (r.improve?.toLowerCase().includes(q)) snippet = r.improve
+            }
+          }
+        }
+        return snippet ? { task: t, snippet } : null
+      })
+      .filter((r): r is { task: (typeof tasks)[number]; snippet: string } => r !== null)
+      .slice(0, 8)
+  })()
 
   const isInputActive = screen.name === 'input'
   const isOutputActive =
@@ -120,6 +171,69 @@ export function Header() {
               <Moon className="size-[18px]" />
             )}
           </button>
+          <div className="relative" ref={searchRef}>
+            <button
+              type="button"
+              onClick={() => setSearchOpen((o) => !o)}
+              className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              aria-label="検索"
+              aria-expanded={searchOpen}
+              title="タスクを検索"
+            >
+              <Search className="size-[18px]" />
+            </button>
+            {searchOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-80 overflow-hidden rounded-xl border border-border bg-popover shadow-lg animate-in fade-in slide-in-from-top-1">
+                <div className="flex items-center gap-1.5 border-b border-border px-3 py-2">
+                  <Search className="size-3.5 shrink-0 text-muted-foreground" />
+                  <input
+                    autoFocus
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="タスク名・コメント・成果物・振り返りを検索"
+                    className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                  />
+                  {query && (
+                    <button onClick={() => setQuery('')} aria-label="クリア">
+                      <X className="size-3.5 text-muted-foreground" />
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-96 overflow-y-auto orbit-scroll">
+                  {!query.trim() ? (
+                    <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                      キーワードを入力してください
+                    </div>
+                  ) : searchResults.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                      該当するタスクがありません
+                    </div>
+                  ) : (
+                    searchResults.map(({ task: t, snippet }) => (
+                      <button
+                        key={t.id}
+                        onClick={() => {
+                          setSearchOpen(false)
+                          openTask(t.id)
+                        }}
+                        className="flex w-full flex-col items-start gap-0.5 border-b border-border px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-secondary"
+                      >
+                        <span className="flex items-center gap-1.5 text-sm font-medium">
+                          {t.name}
+                          <span className="text-xs font-normal text-muted-foreground">
+                            {getProject(t.projectId)?.name}
+                          </span>
+                        </span>
+                        {snippet !== t.name && (
+                          <span className="line-clamp-1 text-xs text-muted-foreground">{snippet}</span>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="relative" ref={notifRef}>
             <button
               type="button"
