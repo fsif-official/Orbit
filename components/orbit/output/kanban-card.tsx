@@ -1,9 +1,11 @@
 'use client'
 
 import type { Task } from '@/lib/orbit/types'
+import { PRIORITY_LINE } from '@/lib/orbit/types'
 import { useOrbit } from '@/lib/orbit/store'
-import { Avatar, DifficultyBadge } from '../primitives'
-import { formatDeadline, isOverdue } from '@/lib/orbit/utils'
+import { useNav } from '@/lib/orbit/nav'
+import { Avatar, DifficultyBadge, DepartmentTag } from '../primitives'
+import { formatDeadline, deadlineLevel } from '@/lib/orbit/utils'
 import { cn } from '@/lib/utils'
 import { TriangleAlert } from 'lucide-react'
 
@@ -19,23 +21,41 @@ export function KanbanCard({
   dragging?: boolean
 }) {
   const { getMember, getProject } = useOrbit()
+  const { go } = useNav()
   const assignee = getMember(task.assigneeId)
   const project = getProject(task.projectId)
-  const overdue = isOverdue(task)
+  const deadline = deadlineLevel(task)
+  const urgent = deadline.level === 'overdue' || deadline.level === 'today'
+  const soon = deadline.level === 'soon' || deadline.level === 'near'
 
   return (
     <div
       draggable
       onDragStart={onDragStart}
       onClick={onClick}
+      style={{ borderLeftColor: PRIORITY_LINE[task.priority], borderLeftWidth: 3 }}
       className={cn(
         'group cursor-pointer rounded-lg border border-border bg-card p-3 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition-all hover:border-border-strong hover:shadow-[0_2px_8px_rgba(16,24,40,0.07)]',
+        urgent && 'border-danger-border bg-danger-muted/40',
+        !urgent && soon && 'border-warning-border bg-warning-muted/30',
         dragging && 'opacity-40',
       )}
     >
       <div className="mb-2 flex items-center gap-1.5">
         <span className="size-1.5 shrink-0 rounded-full bg-primary/60" />
-        <span className="truncate text-[11px] text-muted-foreground">{project?.name}</span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            go({ name: 'project', id: task.projectId })
+          }}
+          className="truncate text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+        >
+          {project?.name}
+        </button>
+        <span className="ml-auto shrink-0">
+          <DepartmentTag name={task.department} />
+        </span>
       </div>
 
       <p className="text-sm font-medium leading-snug text-pretty">{task.name}</p>
@@ -43,10 +63,17 @@ export function KanbanCard({
       <div className="mt-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           {assignee ? (
-            <>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                go({ name: 'person', id: assignee.id })
+              }}
+              className="flex items-center gap-1.5 hover:underline"
+            >
               <Avatar member={assignee} size={20} />
               <span className="text-xs text-muted-foreground">{assignee.name}</span>
-            </>
+            </button>
           ) : (
             <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
               未アサイン
@@ -56,10 +83,10 @@ export function KanbanCard({
         <span
           className={cn(
             'inline-flex items-center gap-1 text-[11px]',
-            overdue ? 'font-medium text-destructive' : 'text-muted-foreground',
+            urgent ? 'font-medium text-destructive' : soon ? 'font-medium text-warning' : 'text-muted-foreground',
           )}
         >
-          {overdue && <TriangleAlert className="size-3" />}
+          {urgent && <TriangleAlert className="size-3" />}
           {formatDeadline(task.deadline)}
         </span>
       </div>

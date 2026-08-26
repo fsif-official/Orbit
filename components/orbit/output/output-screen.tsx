@@ -8,13 +8,14 @@ import { CalendarView } from './calendar-view'
 import { ListView } from './list-view'
 import { PeopleView } from './people-view'
 import { ProjectView } from './project-view'
+import { DifficultyBoard } from './difficulty-board'
 import { TaskDetailDrawer } from './task-detail-drawer'
 import { cn } from '@/lib/utils'
-import { Columns3, LayoutList, CalendarDays, Inbox } from 'lucide-react'
+import { Columns3, LayoutList, CalendarDays, GaugeCircle, Inbox } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 type Target = 'all' | 'people' | 'projects'
-type View = 'workflow' | 'list' | 'calendar'
+type View = 'workflow' | 'list' | 'calendar' | 'difficulty'
 
 export function OutputScreen() {
   const { tasks } = useOrbit()
@@ -64,6 +65,10 @@ export function OutputScreen() {
                 <CalendarDays className="size-3.5" />
                 カレンダー
               </Seg>
+              <Seg active={view === 'difficulty'} onClick={() => setView('difficulty')}>
+                <GaugeCircle className="size-3.5" />
+                難易度
+              </Seg>
             </Segment>
           )}
         </div>
@@ -83,6 +88,9 @@ export function OutputScreen() {
           )}
           {target === 'all' && view === 'calendar' && (
             <CalendarView tasks={tasks} onOpenTask={setOpenTaskId} />
+          )}
+          {target === 'all' && view === 'difficulty' && (
+            <DifficultyBoard tasks={tasks} onOpenTask={setOpenTaskId} />
           )}
         </>
       )}
