@@ -4,12 +4,19 @@ import { useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
 import { Avatar, StatusBadge, DifficultyBadge, SectionLabel } from '@/components/orbit/primitives'
+import { CalendarView } from '@/components/orbit/output/calendar-view'
+import { TaskDetailDrawer } from '@/components/orbit/output/task-detail-drawer'
 import { formatDeadlineFull } from '@/lib/orbit/utils'
+import { cn } from '@/lib/utils'
 import { ArrowLeft, Plus, Target, Sparkles, Activity, X } from 'lucide-react'
+
+type Tab = 'overview' | 'calendar'
 
 export function PersonDetail({ id }: { id: string }) {
   const { getMember, tasks, currentUser, updateWill, updateJudgment, getProject } = useOrbit()
   const { go } = useNav()
+  const [tab, setTab] = useState<Tab>('overview')
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null)
   const member = getMember(id)
 
   if (!member) {
@@ -54,6 +61,37 @@ export function PersonDetail({ id }: { id: string }) {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="mt-5 flex items-center gap-1 border-b border-border">
+        {(
+          [
+            ['overview', 'Overview'],
+            ['calendar', 'Calendar'],
+          ] as [Tab, string][]
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={cn(
+              '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+              tab === key
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'calendar' && (
+        <div className="mt-5">
+          <CalendarView tasks={mine} onOpenTask={setOpenTaskId} />
+        </div>
+      )}
+
+      {tab === 'overview' && (
+        <>
       {/* Talent sections */}
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
         <TalentCard
@@ -121,7 +159,11 @@ export function PersonDetail({ id }: { id: string }) {
             </thead>
             <tbody>
               {history.map((t) => (
-                <tr key={t.id} className="border-b border-border last:border-0">
+                <tr
+                  key={t.id}
+                  onClick={() => setOpenTaskId(t.id)}
+                  className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-secondary/50"
+                >
                   <td className="px-4 py-3 font-medium text-foreground">{t.name}</td>
                   <td className="px-4 py-3 text-muted-foreground">{getProject(t.projectId)?.name}</td>
                   <td className="px-4 py-3">
@@ -146,6 +188,10 @@ export function PersonDetail({ id }: { id: string }) {
           </table>
         </div>
       </div>
+        </>
+      )}
+
+      <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} />
     </div>
   )
 }

@@ -3,10 +3,11 @@
 import { useMemo, useState } from 'react'
 import { Search } from 'lucide-react'
 import { useOrbit } from '@/lib/orbit/store'
-import { STATUS_LABEL, STATUS_ORDER } from '@/lib/orbit/types'
+import { useNav } from '@/lib/orbit/nav'
+import { STATUS_LABEL, STATUS_ORDER, DEPARTMENTS } from '@/lib/orbit/types'
 import type { Task } from '@/lib/orbit/types'
 import { formatDeadline, isOverdue } from '@/lib/orbit/utils'
-import { Avatar, StatusBadge, DifficultyBadge, ProjectTag } from '@/components/orbit/primitives'
+import { Avatar, StatusBadge, DifficultyBadge, ProjectTag, DepartmentTag } from '@/components/orbit/primitives'
 
 export function ListView({
   tasks,
@@ -16,23 +17,26 @@ export function ListView({
   onOpenTask: (id: string) => void
 }) {
   const { projects, members } = useOrbit()
+  const { go } = useNav()
   const [query, setQuery] = useState('')
   const [projectFilter, setProjectFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [assigneeFilter, setAssigneeFilter] = useState('all')
+  const [departmentFilter, setDepartmentFilter] = useState('all')
 
   const filtered = useMemo(() => {
     return tasks.filter((t) => {
       if (query && !t.name.toLowerCase().includes(query.toLowerCase())) return false
       if (projectFilter !== 'all' && t.projectId !== projectFilter) return false
       if (statusFilter !== 'all' && t.status !== statusFilter) return false
+      if (departmentFilter !== 'all' && t.department !== departmentFilter) return false
       if (assigneeFilter !== 'all') {
         if (assigneeFilter === 'unassigned' ? t.assigneeId !== null : t.assigneeId !== assigneeFilter)
           return false
       }
       return true
     })
-  }, [tasks, query, projectFilter, statusFilter, assigneeFilter])
+  }, [tasks, query, projectFilter, statusFilter, departmentFilter, assigneeFilter])
 
   const selectCls =
     'h-9 rounded-lg border border-border bg-card px-2.5 text-sm text-foreground outline-none focus:border-primary'
@@ -74,6 +78,18 @@ export function ListView({
             </option>
           ))}
         </select>
+        <select
+          className={selectCls}
+          value={departmentFilter}
+          onChange={(e) => setDepartmentFilter(e.target.value)}
+        >
+          <option value="all">部門: すべて</option>
+          {DEPARTMENTS.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -83,6 +99,7 @@ export function ListView({
               <th className="px-4 py-2.5 font-medium">タスク</th>
               <th className="px-4 py-2.5 font-medium">担当</th>
               <th className="px-4 py-2.5 font-medium">プロジェクト</th>
+              <th className="px-4 py-2.5 font-medium">部門</th>
               <th className="px-4 py-2.5 font-medium">期限</th>
               <th className="px-4 py-2.5 font-medium">ステータス</th>
               <th className="px-4 py-2.5 font-medium">カテゴリ</th>
@@ -103,15 +120,38 @@ export function ListView({
                   <td className="px-4 py-3 font-medium text-foreground">{t.name}</td>
                   <td className="px-4 py-3">
                     {assignee ? (
-                      <span className="flex items-center gap-2 text-muted-foreground">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          go({ name: 'person', id: assignee.id })
+                        }}
+                        className="flex items-center gap-2 text-muted-foreground hover:text-foreground hover:underline"
+                      >
                         <Avatar member={assignee} size={22} />
                         {assignee.name}
-                      </span>
+                      </button>
                     ) : (
                       <span className="text-amber-600">未アサイン</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">{project && <ProjectTag name={project.name} />}</td>
+                  <td className="px-4 py-3">
+                    {project && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          go({ name: 'project', id: project.id })
+                        }}
+                        className="hover:underline"
+                      >
+                        <ProjectTag name={project.name} />
+                      </button>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <DepartmentTag name={t.department} />
+                  </td>
                   <td className={`px-4 py-3 tabular-nums ${overdue ? 'text-destructive' : 'text-muted-foreground'}`}>
                     {formatDeadline(t.deadline)}
                   </td>
@@ -127,7 +167,7 @@ export function ListView({
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                <td colSpan={8} className="px-4 py-10 text-center text-sm text-muted-foreground">
                   条件に一致するタスクがありません。
                 </td>
               </tr>

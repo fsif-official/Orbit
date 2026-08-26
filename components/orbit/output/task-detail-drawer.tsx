@@ -14,12 +14,13 @@ import {
 import {
   STATUS_LABEL,
   STATUS_ORDER,
+  type Member,
   type Task,
   type TaskStatus,
 } from '@/lib/orbit/types'
-import { formatDeadlineFull, isOverdue } from '@/lib/orbit/utils'
+import { formatDeadlineFull, formatDateTime, isOverdue } from '@/lib/orbit/utils'
 import { cn } from '@/lib/utils'
-import { TriangleAlert, UserPlus, X } from 'lucide-react'
+import { FileText, TriangleAlert, UserPlus, X } from 'lucide-react'
 
 export function TaskDetailDrawer({
   taskId,
@@ -28,14 +29,25 @@ export function TaskDetailDrawer({
   taskId: string | null
   onClose: () => void
 }) {
-  const { tasks, currentUser, getMember, getProject, updateTaskStatus, assignTask, members } =
-    useOrbit()
+  const {
+    tasks,
+    currentUser,
+    getMember,
+    getProject,
+    getInput,
+    updateTaskStatus,
+    updateProgress,
+    assignTask,
+    members,
+  } = useOrbit()
   const toast = useToast()
   const [confirmTake, setConfirmTake] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
+  const [inputOpen, setInputOpen] = useState(false)
 
   const task = tasks.find((t) => t.id === taskId) ?? null
   const open = !!taskId
+  const sourceInput = getInput(task?.originalInputId)
 
   return (
     <>
@@ -46,14 +58,45 @@ export function TaskDetailDrawer({
             currentUserId={currentUser?.id ?? null}
             isAdmin={currentUser?.role === 'admin'}
             assignee={getMember(task.assigneeId) ?? null}
+            creator={getMember(task.createdById ?? null) ?? null}
             projectName={getProject(task.projectId)?.name ?? ''}
+            hasSourceInput={!!sourceInput}
             onClose={onClose}
             onStatus={(s) => updateTaskStatus(task.id, s)}
             onTake={() => setConfirmTake(true)}
             onOpenAssign={() => setAssignOpen(true)}
+            onOpenInput={() => setInputOpen(true)}
+            onProgress={(text) => {
+              updateProgress(task.id, text)
+              toast('進捗を更新しました')
+            }}
           />
         )}
       </Drawer>
+
+      {/* Original input text */}
+      <Modal open={inputOpen} onClose={() => setInputOpen(false)} labelledBy="source-input-title">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 id="source-input-title" className="text-base font-semibold">
+            元の入力内容
+          </h2>
+          <button onClick={() => setInputOpen(false)} aria-label="閉じる">
+            <X className="size-4 text-muted-foreground" />
+          </button>
+        </div>
+        {sourceInput ? (
+          <>
+            <p className="whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-3 text-sm leading-relaxed">
+              {sourceInput.text}
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {formatDateTime(sourceInput.createdAt)} ・ この入力から{sourceInput.generatedTaskIds.length}件のタスクが生成されました
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">元の入力は見つかりませんでした。</p>
+        )}
+      </Modal>
 
       {/* Take task confirm */}
       <Modal open={confirmTake} onClose={() => setConfirmTake(false)}>
@@ -131,24 +174,34 @@ function DrawerBody({
   currentUserId,
   isAdmin,
   assignee,
+  creator,
   projectName,
+  hasSourceInput,
   onClose,
   onStatus,
   onTake,
   onOpenAssign,
+  onOpenInput,
+  onProgress,
 }: {
   task: Task
   currentUserId: string | null
   isAdmin: boolean
-  assignee: ReturnType<typeof Object> | null
+  assignee: Member | null
+  creator: Member | null
   projectName: string
+  hasSourceInput: boolean
   onClose: () => void
   onStatus: (s: TaskStatus) => void
   onTake: () => void
   onOpenAssign: () => void
+  onOpenInput: () => void
+  onProgress: (text: string) => void
 }) {
   const overdue = isOverdue(task)
   const canChangeStatus = isAdmin || task.assigneeId === currentUserId
+  const canUpdateProgress = isAdmin || task.assigneeId === currentUserId
+  const [progressDraft, setProgressDraft] = useState('')
 
   return (
     <div className="flex h-full flex-col">
@@ -182,11 +235,14 @@ function DrawerBody({
               {projectName}
             </span>
           </Row>
+          <Row label="部門">
+            <span className="text-sm">{task.department}</span>
+          </Row>
           <Row label="担当者">
             {assignee ? (
               <span className="inline-flex items-center gap-2 text-sm">
-                <Avatar member={assignee as never} size={22} />
-                {(assignee as { name: string }).name}
+                <Avatar member={assignee} size={22} />
+                {assignee.name}
               </span>
             ) : (
               <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">
@@ -219,7 +275,27 @@ function DrawerBody({
               ))}
             </div>
           </Row>
+          <Row label="登録者">
+            {creator ? (
+              <span className="inline-flex items-center gap-2 text-sm">
+                <Avatar member={creator} size={22} />
+                {creator.name}
+              </span>
+            ) : (
+              <span className="text-sm text-muted-foreground">不明</span>
+            )}
+          </Row>
         </dl>
+
+        {hasSourceInput && (
+          <button
+            onClick={onOpenInput}
+            className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+          >
+            <FileText className="size-3.5" />
+            元の入力内容を見る
+          </button>
+        )}
 
         {/* Status changer */}
         {canChangeStatus && (
@@ -246,6 +322,48 @@ function DrawerBody({
             </div>
           </div>
         )}
+
+        {/* Progress */}
+        <div className="mt-6">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            進捗
+          </div>
+          {canUpdateProgress && (
+            <div className="mb-3 flex items-start gap-2">
+              <textarea
+                value={progressDraft}
+                onChange={(e) => setProgressDraft(e.target.value)}
+                rows={2}
+                placeholder="どこまで進んだか記録する"
+                className="min-h-[52px] flex-1 resize-none rounded-lg border border-border bg-card px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
+              />
+              <Button
+                className="h-9 shrink-0"
+                disabled={!progressDraft.trim()}
+                onClick={() => {
+                  onProgress(progressDraft)
+                  setProgressDraft('')
+                }}
+              >
+                記録
+              </Button>
+            </div>
+          )}
+          {task.progressHistory.length > 0 ? (
+            <ul className="space-y-2.5">
+              {task.progressHistory.map((entry) => (
+                <li key={entry.id} className="rounded-lg border border-border bg-secondary/40 px-3 py-2">
+                  <p className="text-sm leading-relaxed">{entry.text}</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {formatDateTime(entry.at)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">まだ進捗の記録がありません。</p>
+          )}
+        </div>
       </div>
 
       {/* Footer actions */}
@@ -266,7 +384,7 @@ function DrawerBody({
           </p>
         ) : (
           <p className="text-center text-xs text-muted-foreground">
-            {(assignee as { name?: string })?.name} が担当しています。
+            {assignee?.name} が担当しています。
           </p>
         )}
       </div>

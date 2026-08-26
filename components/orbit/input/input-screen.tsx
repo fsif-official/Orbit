@@ -5,16 +5,18 @@ import { Button } from '@/components/ui/button'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
 import { useToast } from '../toast'
+import { Modal } from '../modal'
 import { buildDemoParse, DEMO_INPUT } from '@/lib/orbit/seed'
-import type { ParsedTask, Department, Priority } from '@/lib/orbit/types'
+import type { ParsedTask, Department, Priority, TaskInput } from '@/lib/orbit/types'
 import { ParsedTaskCard } from './parsed-task-card'
-import { OrbitMark } from '../primitives'
-import { ArrowRight, Sparkles, TriangleAlert, Wand2 } from 'lucide-react'
+import { OrbitMark, SectionLabel, StatusBadge } from '../primitives'
+import { formatDateTime } from '@/lib/orbit/utils'
+import { ArrowRight, History, Sparkles, Trash2, TriangleAlert, Wand2, X } from 'lucide-react'
 
 type Phase = 'input' | 'parsing' | 'result'
 
 export function InputScreen() {
-  const { addTasksFromInput, setMode } = useOrbit()
+  const { addTasksFromInput, setMode, currentUser, inputs, tasks } = useOrbit()
   const { go } = useNav()
   const toast = useToast()
 
@@ -24,6 +26,9 @@ export function InputScreen() {
   const [emptyError, setEmptyError] = useState(false)
   const [parseFailed, setParseFailed] = useState(false)
   const [registered, setRegistered] = useState(false)
+  const [historyInput, setHistoryInput] = useState<TaskInput | null>(null)
+
+  const myInputs = inputs.filter((i) => i.createdById === currentUser?.id)
 
   const handleParse = () => {
     if (!text.trim()) {
@@ -96,23 +101,39 @@ export function InputScreen() {
               <span className="text-xs text-muted-foreground">
                 複数のタスクをまとめて入力できます。
               </span>
-              <Button
-                onClick={handleParse}
-                disabled={phase === 'parsing'}
-                className="h-9 px-4"
-              >
-                {phase === 'parsing' ? (
-                  <>
-                    <OrbitMark size={15} />
-                    整理中…
-                  </>
-                ) : (
-                  <>
-                    <Wand2 className="size-4" />
-                    タスクを整理する
-                  </>
+              <div className="flex items-center gap-2">
+                {!!text && phase !== 'parsing' && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setText('')
+                      setEmptyError(false)
+                      setParseFailed(false)
+                    }}
+                    className="h-9 px-3 text-muted-foreground"
+                  >
+                    <Trash2 className="size-4" />
+                    クリア
+                  </Button>
                 )}
-              </Button>
+                <Button
+                  onClick={handleParse}
+                  disabled={phase === 'parsing'}
+                  className="h-9 px-4"
+                >
+                  {phase === 'parsing' ? (
+                    <>
+                      <OrbitMark size={15} />
+                      整理中…
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="size-4" />
+                      タスクを整理する
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -182,6 +203,30 @@ export function InputScreen() {
               </div>
             </div>
           )}
+
+          {phase === 'input' && myInputs.length > 0 && (
+            <div className="mt-10">
+              <div className="mb-2 flex items-center gap-1.5">
+                <History className="size-3.5 text-muted-foreground" />
+                <SectionLabel>入力履歴</SectionLabel>
+              </div>
+              <div className="flex flex-col gap-2">
+                {myInputs.map((i) => (
+                  <button
+                    key={i.id}
+                    type="button"
+                    onClick={() => setHistoryInput(i)}
+                    className="flex items-start justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5 text-left transition-colors hover:border-border-strong hover:bg-secondary/50"
+                  >
+                    <p className="min-w-0 flex-1 truncate text-sm text-foreground">{i.text}</p>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {i.generatedTaskIds.length}件・{formatDateTime(i.createdAt)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -247,6 +292,49 @@ export function InputScreen() {
           </div>
         </div>
       )}
+
+      <Modal
+        open={!!historyInput}
+        onClose={() => setHistoryInput(null)}
+        labelledBy="history-input-title"
+      >
+        {historyInput && (
+          <>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 id="history-input-title" className="text-base font-semibold">
+                入力内容
+              </h2>
+              <button onClick={() => setHistoryInput(null)} aria-label="閉じる">
+                <X className="size-4 text-muted-foreground" />
+              </button>
+            </div>
+            <p className="whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-3 text-sm leading-relaxed">
+              {historyInput.text}
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {formatDateTime(historyInput.createdAt)}
+            </p>
+            <div className="mt-4">
+              <SectionLabel>生成されたタスク</SectionLabel>
+              <ul className="mt-2 flex flex-col gap-1.5">
+                {historyInput.generatedTaskIds.map((tid) => {
+                  const t = tasks.find((x) => x.id === tid)
+                  if (!t) return null
+                  return (
+                    <li
+                      key={tid}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-2.5 py-1.5"
+                    >
+                      <span className="truncate text-sm">{t.name}</span>
+                      <StatusBadge status={t.status} />
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          </>
+        )}
+      </Modal>
     </main>
   )
 }
