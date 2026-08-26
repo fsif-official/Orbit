@@ -121,6 +121,7 @@ interface OrbitContextValue extends OrbitState {
   addMember: (name: string, email: string, affiliation: string, role: string) => void
   removeMember: (memberId: string) => void
   updateNotify: (memberId: string, notify: boolean) => void
+  updateEmail: (memberId: string, email: string) => void
   updateRole: (memberId: string, role: Role) => void
   updateReportsTo: (memberId: string, reportsToId: string | null) => void
   updateDisplayName: (memberId: string, displayName: string) => void
@@ -705,6 +706,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  const updateEmail = useCallback(
+    (memberId: string, email: string) => {
+      const trimmed = email.trim()
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, email: trimmed || undefined } : m)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateEmail(memberId, trimmed))
+    },
+    [runRemote],
+  )
+
   const updateRole = useCallback(
     (memberId: string, role: Role) => {
       setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role } : m)))
@@ -946,6 +958,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     addMember,
     removeMember,
     updateNotify,
+    updateEmail,
     updateRole,
     updateReportsTo,
     updateDisplayName,

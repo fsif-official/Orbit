@@ -12,7 +12,19 @@ import { formatDeadlineFull } from '@/lib/orbit/utils'
 import { isAdminRole, BASE_ROLE } from '@/lib/orbit/types'
 import { AVATAR_PALETTE } from '@/lib/orbit/remote'
 import { cn } from '@/lib/utils'
-import { ArrowLeft, Plus, Target, Sparkles, Activity, X, Pencil, Check, CalendarOff } from 'lucide-react'
+import {
+  ArrowLeft,
+  Plus,
+  Target,
+  Sparkles,
+  Activity,
+  X,
+  Pencil,
+  Check,
+  CalendarOff,
+  Bell,
+  Mail,
+} from 'lucide-react'
 
 type Tab = 'overview' | 'growth' | 'calendar'
 
@@ -28,6 +40,10 @@ export function PersonDetail({ id }: { id: string }) {
     updateDisplayName,
     toggleUnavailableDate,
     updateAvatar,
+    updateEmail,
+    updateNotify,
+    skillOptions,
+    addSkillOption,
   } = useOrbit()
   const { go } = useNav()
   const [tab, setTab] = useState<Tab>('overview')
@@ -36,6 +52,7 @@ export function PersonDetail({ id }: { id: string }) {
   const [nameDraft, setNameDraft] = useState('')
   const [avatarOpen, setAvatarOpen] = useState(false)
   const [initialsDraft, setInitialsDraft] = useState('')
+  const [emailDraft, setEmailDraft] = useState<string | null>(null)
   const member = getMember(id)
 
   if (!member) {
@@ -164,6 +181,46 @@ export function PersonDetail({ id }: { id: string }) {
           <p className="text-xs text-muted-foreground">進行中のタスク</p>
         </div>
       </div>
+
+      {/* Account settings — self only, edits the person's own sheet row */}
+      {isSelf && (
+        <div className="mt-4 rounded-xl border border-border bg-card p-4">
+          <SectionLabel>アカウント設定</SectionLabel>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex min-w-0 flex-1 items-center gap-2">
+              <Mail className="size-4 shrink-0 text-muted-foreground" />
+              <input
+                value={emailDraft ?? member.email ?? ''}
+                onChange={(e) => setEmailDraft(e.target.value)}
+                onBlur={() => {
+                  if (emailDraft !== null && emailDraft !== (member.email ?? '')) {
+                    updateEmail(member.id, emailDraft)
+                  }
+                  setEmailDraft(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur()
+                }}
+                placeholder="メールアドレス（通知の送信先）"
+                type="email"
+                className="h-8 w-full max-w-xs rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary"
+              />
+            </label>
+            <button
+              onClick={() => updateNotify(member.id, !member.notify)}
+              className={cn(
+                'flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors',
+                member.notify
+                  ? 'border-primary/30 bg-primary-muted text-accent-foreground'
+                  : 'border-border text-muted-foreground hover:bg-secondary',
+              )}
+            >
+              <Bell className="size-3.5" />
+              新規タスク通知 {member.notify ? 'ON' : 'OFF'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="mt-5 flex items-center gap-1 border-b border-border">
@@ -312,6 +369,8 @@ export function PersonDetail({ id }: { id: string }) {
             onChange={(next) => updateWill(member.id, next)}
             emptyText="まだ登録されていません"
             placeholder="やりたいことを追加"
+            options={skillOptions}
+            onNewOption={addSkillOption}
           />
         </TalentCard>
 
@@ -327,6 +386,8 @@ export function PersonDetail({ id }: { id: string }) {
             emptyText="まだ登録されていません"
             placeholder="評価を追加"
             variant="judgment"
+            options={skillOptions}
+            onNewOption={addSkillOption}
           />
         </TalentCard>
 
@@ -525,6 +586,8 @@ function EditableTags({
   emptyText,
   placeholder,
   variant = 'will',
+  options = [],
+  onNewOption,
 }: {
   tags: string[]
   editable: boolean
@@ -532,13 +595,21 @@ function EditableTags({
   emptyText: string
   placeholder: string
   variant?: 'will' | 'judgment'
+  // existing option pool selectable via dropdown (e.g. store.skillOptions),
+  // in addition to freely typing a new one
+  options?: string[]
+  onNewOption?: (value: string) => void
 }) {
   const [adding, setAdding] = useState(false)
   const [value, setValue] = useState('')
+  const selectableOptions = options.filter((o) => !tags.includes(o))
 
   const commit = () => {
     const v = value.trim()
-    if (v && !tags.includes(v)) onChange([...tags, v])
+    if (v && !tags.includes(v)) {
+      onChange([...tags, v])
+      onNewOption?.(v)
+    }
     setValue('')
     setAdding(false)
   }
@@ -570,6 +641,24 @@ function EditableTags({
           )}
         </span>
       ))}
+      {editable && selectableOptions.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => {
+            const v = e.target.value
+            if (v) onChange([...tags, v])
+          }}
+          className="h-6 cursor-pointer rounded-md border border-dashed border-border-strong bg-transparent px-1.5 text-xs text-muted-foreground outline-none hover:border-border"
+          aria-label="既存の選択肢から追加"
+        >
+          <option value="">選択して追加</option>
+          {selectableOptions.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      )}
       {editable &&
         (adding ? (
           <input

@@ -310,6 +310,7 @@ export const remoteApi = {
     postToGas('updateAvatar', { memberId, avatarColor, initials }),
   addMember: (name: string, email: string, affiliation: string, role: Role) =>
     postToGas<{ id: string }>('addMember', { name, email, affiliation, role }),
+  updateEmail: (memberId: string, email: string) => postToGas('updateEmail', { memberId, email }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to
