@@ -47,6 +47,12 @@ export type Priority = '高' | '中' | '低'
 
 export const PRIORITIES: Priority[] = ['高', '中', '低']
 
+// item 9: 承認ルートの拡張 — 重要/対外公開のタスクは最上位管理者のみが
+// 承認できる（Task.importance / admin-approvals.tsx）
+export type TaskImportance = '一般' | '重要' | '対外公開'
+
+export const TASK_IMPORTANCE: TaskImportance[] = ['一般', '重要', '対外公開']
+
 export const DEPARTMENTS = [
   '運営',
   '広報',
@@ -331,6 +337,10 @@ export interface Task {
   dependsOnIds?: string[]
   // '幹部' restricts visibility to 班長/代表 (see canSeeExecTasks); undefined/'all' = everyone
   visibility?: 'all' | '幹部'
+  // タスクの重要度（item 9: 承認ルートの拡張）— 重要/対外公開のタスクは
+  // 登録者の報告先ではなく、最上位の管理者（isFullAdmin）のみ承認できる。
+  // 未設定/一般は既存どおり報告先チェーンで承認できる。
+  importance?: TaskImportance
   // distinct from assigneeIds — who signs off on this task (pairs with the
   // 'review' status). Unset = no particular reviewer, any admin can review.
   reviewerId?: string
@@ -407,6 +417,8 @@ export interface ParsedTask {
   visibility?: 'all' | '幹部'
   // suggested/entered estimate at registration time — see Task.estimatedHours
   estimatedHours?: number
+  // see Task.importance
+  importance?: TaskImportance
 }
 
 export const STATUS_ORDER: TaskStatus[] = [

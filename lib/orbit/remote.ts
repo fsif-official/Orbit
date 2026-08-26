@@ -248,6 +248,7 @@ function mapTaskRow(r: Record<string, string>): Task {
     estimatedHours: r.estimated_hours ? Number(r.estimated_hours) : undefined,
     actualHours: r.actual_hours ? Number(r.actual_hours) : undefined,
     retrospective: parseJsonObject<TaskRetrospective>(r.retrospective_json),
+    importance: (r.importance || undefined) as Task['importance'],
   }
 }
 
@@ -375,6 +376,7 @@ export interface CreateTaskPayload {
   pendingApproval?: boolean
   visibility?: 'all' | '幹部'
   estimatedHours?: number
+  importance?: string
 }
 
 async function postToGas<T = unknown>(action: string, payload: Record<string, unknown>): Promise<T> {
@@ -485,5 +487,6 @@ export function toCreatePayload(tempId: string, p: ParsedTask, creatorId?: strin
     pendingApproval: true,
     visibility: p.visibility ?? 'all',
     estimatedHours: p.estimatedHours,
+    importance: p.importance,
   }
 }

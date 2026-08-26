@@ -927,6 +927,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         pendingApproval: true,
         visibility: p.visibility ?? 'all',
         estimatedHours: p.estimatedHours,
+        importance: p.importance,
       }))
 
       const input: TaskInput = {

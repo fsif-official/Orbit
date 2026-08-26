@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { ParsedTask } from '@/lib/orbit/types'
-import { DIFFICULTY_LABEL } from '@/lib/orbit/types'
+import { DIFFICULTY_LABEL, TASK_IMPORTANCE } from '@/lib/orbit/types'
 import { useOrbit } from '@/lib/orbit/store'
 import { Card, DifficultyBadge, Tag, Avatar } from '../primitives'
 import { cn } from '@/lib/utils'
@@ -326,6 +326,20 @@ export function ParsedTaskCard({
           >
             <option value="all">全員</option>
             <option value="幹部">幹部限定</option>
+          </select>
+        </Field>
+
+        <Field label="重要度">
+          <select
+            value={task.importance ?? '一般'}
+            onChange={(e) => set('importance', e.target.value as ParsedTask['importance'])}
+            className="w-full cursor-pointer rounded-md border border-transparent bg-transparent py-0.5 text-sm outline-none hover:border-border focus:border-border-strong"
+          >
+            {TASK_IMPORTANCE.map((i) => (
+              <option key={i} value={i}>
+                {i}
+              </option>
+            ))}
           </select>
         </Field>
 

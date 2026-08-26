@@ -264,6 +264,8 @@ function createTasks(tasks) {
           return t.pendingApproval === false ? '承認済み' : '承認待ち'
         case 'estimated_hours':
           return t.estimatedHours || ''
+        case 'importance':
+          return t.importance || ''
         default:
           return ''
       }
