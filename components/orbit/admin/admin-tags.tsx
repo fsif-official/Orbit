@@ -28,8 +28,10 @@ export function AdminTags() {
     jobRequirements,
     setJobRequirements,
   } = useOrbit()
-  // the top (last) role level always has full access — nothing to configure
-  const nonTopLevels = roleLevels.slice(0, -1)
+  // every role level except the bottom (first) one is full admin with
+  // unrestricted section access — only the bottom tier's visibility is
+  // configurable (see store.tsx's isFullAdminMember/visibleAdminSections)
+  const nonTopLevels = roleLevels.length <= 1 ? [] : roleLevels.slice(0, 1)
   // item 17: ポジション要件 — every role, including 一般, has a position
   const jobTypes = [BASE_ROLE, ...roleLevels]
 
@@ -90,8 +92,8 @@ export function AdminTags() {
         <div className="mt-6 rounded-lg border border-border bg-card p-4">
           <SectionLabel>権限レベルごとの表示範囲</SectionLabel>
           <p className="mt-1 text-xs text-muted-foreground">
-            最上位のレベル（{roleLevels[roleLevels.length - 1]}）は常にすべてのセクションにアクセスできます。
-            それ以外のレベルは、管理者画面でどのセクションを見せるか個別に選べます。未設定の場合は
+            「{roleLevels[0]}」以外のレベルは常にすべてのセクションにアクセスできます。
+            「{roleLevels[0]}」は、管理者画面でどのセクションを見せるか個別に選べます。未設定の場合は
             Members・Tags以外の全セクションが既定で表示されます。
           </p>
           <div className="mt-4 flex flex-col gap-4">

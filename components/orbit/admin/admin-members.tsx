@@ -46,7 +46,7 @@ export function AdminMembers() {
   const [managementOnly, setManagementOnly] = useState(false)
   const [desiredArea, setDesiredArea] = useState('')
   const ROLES: Role[] = [BASE_ROLE, ...roleLevels]
-  const isTopRole = (role: Role) => roleLevels.length === 0 || role === roleLevels[roleLevels.length - 1]
+  const isTopRole = (role: Role) => roleLevels.length <= 1 || role !== roleLevels[0]
 
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')

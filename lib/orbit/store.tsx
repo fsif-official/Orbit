@@ -1865,36 +1865,23 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [projects, visibleTasks, members],
   )
 
-  // A member holding the highest-ranked configured role level (see
-  // roleLevels — default top level is 代表) manages everything, matching
-  // today's behavior: unrestricted admin-section visibility, project
-  // creation/deletion/template management, and escalated (重要/対外公開)
-  // task approval authority are all exclusive to this top tier.
+  // Every configured role level except the single bottom-most one (see
+  // roleLevels — default bottom level is 班長) is full admin, with
+  // identical maximal privileges: unrestricted admin-section visibility,
+  // project creation/deletion/template management, escalated (重要/
+  // 対外公開) task approval authority, and unscoped project/task
+  // visibility in adminProjects/adminTasks/adminPendingTasks below.
+  // Only the bottom-most tier is scoped to its own project_ids. With a
+  // single configured tier, that tier is trivially full admin.
   const isFullAdminMember = useCallback(
     (member: Member | null | undefined) => {
       if (!member || member.role === BASE_ROLE) return false
-      if (roleLevels.length === 0) return true
-      return member.role === roleLevels[roleLevels.length - 1]
+      if (roleLevels.length <= 1) return true
+      return member.role !== roleLevels[0]
     },
     [roleLevels],
   )
   const isFullAdmin = useMemo(() => isFullAdminMember(currentUser), [isFullAdminMember, currentUser])
-
-  // Only the single bottom-most configured admin tier (default 班長) is
-  // scoped to their own project_ids. Every tier above that — 事業責任者,
-  // any further level an admin adds via Admin → Tags, and 代表 itself —
-  // sees every project/task in the admin views (see adminProjects/
-  // adminTasks/adminPendingTasks below), even though only 代表
-  // (isFullAdmin) can create/delete projects, manage templates, or
-  // approve escalated tasks.
-  const isBottomAdminTier = useCallback(
-    (member: Member | null | undefined) => {
-      if (!member || member.role === BASE_ROLE) return false
-      if (roleLevels.length === 0) return false
-      return member.role === roleLevels[0]
-    },
-    [roleLevels],
-  )
 
   // which admin-screen sections the current (non-top) admin role can see —
   // falls back to DEFAULT_NON_TOP_SECTIONS (everything but Members/Tags,
@@ -1910,24 +1897,21 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
 
   const adminProjects = useMemo(() => {
     if (isFullAdmin || !currentUser) return projects
-    if (currentUser.role !== BASE_ROLE && !isBottomAdminTier(currentUser)) return projects
     const scope = new Set(currentUser.projectIds ?? [])
     return projects.filter((p) => scope.has(p.id))
-  }, [projects, isFullAdmin, currentUser, isBottomAdminTier])
+  }, [projects, isFullAdmin, currentUser])
 
   const adminTasks = useMemo(() => {
     if (isFullAdmin || !currentUser) return visibleTasks
-    if (currentUser.role !== BASE_ROLE && !isBottomAdminTier(currentUser)) return visibleTasks
     const scope = new Set(currentUser.projectIds ?? [])
     return visibleTasks.filter((t) => scope.has(t.projectId))
-  }, [visibleTasks, isFullAdmin, currentUser, isBottomAdminTier])
+  }, [visibleTasks, isFullAdmin, currentUser])
 
   const adminPendingTasks = useMemo(() => {
     if (isFullAdmin || !currentUser) return pendingTasks
-    if (currentUser.role !== BASE_ROLE && !isBottomAdminTier(currentUser)) return pendingTasks
     const scope = new Set(currentUser.projectIds ?? [])
     return pendingTasks.filter((t) => scope.has(t.projectId))
-  }, [pendingTasks, isFullAdmin, currentUser, isBottomAdminTier])
+  }, [pendingTasks, isFullAdmin, currentUser])
 
   const notifications = useMemo(() => {
     if (!currentUser) return []
