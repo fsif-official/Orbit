@@ -27,6 +27,7 @@ import {
   colorForId,
   fetchRemoteData,
   initialsForName,
+  isDriveConfigured,
   isRemoteConfigured,
   remoteApi,
   toCreatePayload,
@@ -84,6 +85,9 @@ interface OrbitContextValue extends OrbitState {
   // whether the app is backed by the live spreadsheet (via GAS/CSV) or the
   // local mock data — surfaced so the UI can show sync state.
   remoteEnabled: boolean
+  // whether profile-picture uploads are usable (remote configured AND a
+  // Drive folder id is set) — see gas/README.md's DRIVE_FOLDER_ID setup
+  driveEnabled: boolean
   remoteStatus: RemoteStatus
   remoteError: string | null
   skillOptions: string[]
@@ -129,6 +133,7 @@ interface OrbitContextValue extends OrbitState {
   updateSchedule: (id: string, startDate: string | null, deadline: string | null) => void
   updateDependsOn: (id: string, dependsOnIds: string[]) => void
   updateAvatar: (memberId: string, avatarColor: string, initials: string) => void
+  uploadAvatarImage: (memberId: string, dataUrl: string, filename: string) => Promise<void>
   notifications: import('./types').NotificationItem[]
   getMember: (id: string | null) => Member | undefined
   getProject: (id: string) => Project | undefined
@@ -777,12 +782,39 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const updateAvatar = useCallback(
     (memberId: string, avatarColor: string, initials: string) => {
       const trimmedInitials = initials.trim().slice(0, 2).toUpperCase()
+      // choosing a color+initials avatar supersedes any uploaded picture
       setMembers((prev) =>
-        prev.map((m) => (m.id === memberId ? { ...m, avatarColor, initials: trimmedInitials || m.initials } : m)),
+        prev.map((m) =>
+          m.id === memberId
+            ? { ...m, avatarColor, initials: trimmedInitials || m.initials, avatarUrl: undefined }
+            : m,
+        ),
       )
       if (isRemoteConfigured) runRemote(remoteApi.updateAvatar(memberId, avatarColor, trimmedInitials))
     },
     [runRemote],
+  )
+
+  // uploads a resized profile picture (see person-detail.tsx) to the
+  // configured Drive folder via GAS, returning a Promise so the UI can
+  // show a loading/error state. Shows the raw data URL immediately as an
+  // optimistic preview, then swaps in the real Drive-hosted URL.
+  const uploadAvatarImage = useCallback(
+    (memberId: string, dataUrl: string, filename: string) => {
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, avatarUrl: dataUrl } : m)))
+      if (!isDriveConfigured) return Promise.resolve()
+      return remoteApi
+        .uploadAvatarImage(memberId, dataUrl, filename)
+        .then(({ url }) => {
+          setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, avatarUrl: url } : m)))
+          setRemoteError(null)
+        })
+        .catch((err) => {
+          reportRemoteError(err)
+          throw err
+        })
+    },
+    [reportRemoteError],
   )
 
   const persistOnboarded = useCallback((ids: Set<string>) => {
@@ -922,6 +954,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     mode,
     currentUser,
     remoteEnabled: isRemoteConfigured,
+    driveEnabled: isDriveConfigured,
     remoteStatus,
     remoteError,
     skillOptions,
@@ -966,6 +999,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateSchedule,
     updateDependsOn,
     updateAvatar,
+    uploadAvatarImage,
     notifications,
     getMember,
     getProject,

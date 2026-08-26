@@ -34,6 +34,17 @@ export function Avatar({
       </span>
     )
   }
+  if (member.avatarUrl) {
+    return (
+      <img
+        src={member.avatarUrl}
+        alt={member.displayName || member.name}
+        title={member.displayName || member.name}
+        className={cn('inline-block shrink-0 rounded-full object-cover', className)}
+        style={{ width: size, height: size }}
+      />
+    )
+  }
   return (
     <span
       className={cn(

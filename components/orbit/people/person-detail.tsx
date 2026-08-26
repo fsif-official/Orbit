@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
+import { useToast } from '@/components/orbit/toast'
 import { Avatar, StatusBadge, DifficultyBadge, SectionLabel } from '@/components/orbit/primitives'
 import { CalendarView } from '@/components/orbit/output/calendar-view'
 import { TaskDetailDrawer } from '@/components/orbit/output/task-detail-drawer'
@@ -24,9 +25,37 @@ import {
   CalendarOff,
   Bell,
   Mail,
+  ImageUp,
+  Loader2,
+  Trash2,
 } from 'lucide-react'
 
 type Tab = 'overview' | 'growth' | 'calendar'
+
+// Downscales/crops an uploaded image to a square JPEG data URL so avatar
+// uploads stay small and consistent, regardless of the source photo's size.
+const AVATAR_UPLOAD_SIZE = 256
+function resizeImageToDataUrl(file: File, size = AVATAR_UPLOAD_SIZE): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = size
+      canvas.height = size
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return reject(new Error('canvas unsupported'))
+      // cover-fit crop to a square
+      const scale = Math.max(size / img.width, size / img.height)
+      const w = img.width * scale
+      const h = img.height * scale
+      ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h)
+      resolve(canvas.toDataURL('image/jpeg', 0.85))
+      URL.revokeObjectURL(img.src)
+    }
+    img.onerror = () => reject(new Error('画像を読み込めませんでした'))
+    img.src = URL.createObjectURL(file)
+  })
+}
 
 export function PersonDetail({ id }: { id: string }) {
   const {
@@ -40,12 +69,15 @@ export function PersonDetail({ id }: { id: string }) {
     updateDisplayName,
     toggleUnavailableDate,
     updateAvatar,
+    uploadAvatarImage,
+    driveEnabled,
     updateEmail,
     updateNotify,
     skillOptions,
     addSkillOption,
   } = useOrbit()
   const { go } = useNav()
+  const toast = useToast()
   const [tab, setTab] = useState<Tab>('overview')
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
@@ -53,6 +85,8 @@ export function PersonDetail({ id }: { id: string }) {
   const [avatarOpen, setAvatarOpen] = useState(false)
   const [initialsDraft, setInitialsDraft] = useState('')
   const [emailDraft, setEmailDraft] = useState<string | null>(null)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const member = getMember(id)
 
   if (!member) {
@@ -61,6 +95,24 @@ export function PersonDetail({ id }: { id: string }) {
         <p className="text-sm text-muted-foreground">メンバーが見つかりません。</p>
       </div>
     )
+  }
+
+  const handleAvatarFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast('画像ファイルを選択してください')
+      return
+    }
+    setUploadingAvatar(true)
+    try {
+      const dataUrl = await resizeImageToDataUrl(file)
+      await uploadAvatarImage(member.id, dataUrl, `avatar-${member.id}.jpg`)
+      toast('プロフィール画像を更新しました')
+      setAvatarOpen(false)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '画像のアップロードに失敗しました')
+    } finally {
+      setUploadingAvatar(false)
+    }
   }
 
   const mine = tasks.filter((t) => t.assigneeIds.includes(member.id))
@@ -515,6 +567,53 @@ export function PersonDetail({ id }: { id: string }) {
             aria-label="イニシャル（2文字まで）"
           />
         </div>
+
+        <div className="mt-4 rounded-lg border border-dashed border-border-strong bg-secondary/30 p-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) handleAvatarFile(file)
+              e.target.value = ''
+            }}
+          />
+          {driveEnabled ? (
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAvatar}
+                className="flex items-center gap-1.5 text-sm font-medium text-primary hover:underline disabled:opacity-50"
+              >
+                {uploadingAvatar ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <ImageUp className="size-4" />
+                )}
+                {uploadingAvatar ? 'アップロード中…' : '画像をアップロード'}
+              </button>
+              {member.avatarUrl && (
+                <button
+                  type="button"
+                  onClick={() => updateAvatar(member.id, member.avatarColor, initialsDraft || member.initials)}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="size-3.5" />
+                  画像を削除
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              画像アップロードは未設定です（管理者がGoogleドライブ連携を設定すると使えます）。
+              それまでは下の色とイニシャルが使われます。
+            </p>
+          )}
+        </div>
+
         <p className="mb-1.5 mt-4 text-xs font-medium text-muted-foreground">カラー</p>
         <div className="flex flex-wrap gap-2">
           {AVATAR_PALETTE.map((color) => (

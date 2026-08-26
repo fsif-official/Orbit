@@ -114,3 +114,63 @@ export function rankCandidates(
     .filter((c) => c.matches.length > 0)
     .sort((a, b) => b.matches.length - a.matches.length)
 }
+
+// Builds a Google Calendar "quick add" URL pre-filled with a task's title,
+// date/time, and details, for a personal "add to my calendar" button
+// (task-detail-drawer.tsx) — anyone can click it to drop the task into
+// their own Google Calendar. This is separate from gas/Code.gs's
+// admin-side sync, which creates the event server-side and invites
+// assignees; this one needs no backend at all. Returns null when the task
+// has no deadline (nothing to add).
+export function googleCalendarUrl(
+  task: {
+    name: string
+    startDate?: string | null
+    deadline: string | null
+    dueTime?: string | null
+    description?: string
+  },
+  extra: { projectName?: string; department?: string; category?: string } = {},
+): string | null {
+  if (!task.deadline) return null
+
+  const compact = (d: string) => d.replace(/-/g, '')
+  const addDays = (d: string, days: number) => {
+    const dt = new Date(`${d}T00:00:00Z`)
+    dt.setUTCDate(dt.getUTCDate() + days)
+    return dt.toISOString().slice(0, 10)
+  }
+  const pad2 = (n: number) => String(n).padStart(2, '0')
+
+  let dates: string
+  if (task.dueTime) {
+    // 1-hour timed event, matching gas/Code.gs's sync convention
+    const [h, m] = task.dueTime.split(':').map(Number)
+    const endTotal = h * 60 + m + 60
+    const endDate = endTotal >= 1440 ? addDays(task.deadline, 1) : task.deadline
+    const endMinutes = endTotal % 1440
+    const start = `${compact(task.deadline)}T${pad2(h)}${pad2(m)}00`
+    const end = `${compact(endDate)}T${pad2(Math.floor(endMinutes / 60))}${pad2(endMinutes % 60)}00`
+    dates = `${start}/${end}`
+  } else {
+    const start =
+      task.startDate && task.startDate < task.deadline ? task.startDate : task.deadline
+    // Google's all-day range end is exclusive, so add one day
+    dates = `${compact(start)}/${compact(addDays(task.deadline, 1))}`
+  }
+
+  const details = [
+    extra.projectName && `プロジェクト: ${extra.projectName}`,
+    extra.department && `部門: ${extra.department}`,
+    extra.category && `カテゴリ: ${extra.category}`,
+    task.description,
+    'Orbitから追加',
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const params = new URLSearchParams({ action: 'TEMPLATE', text: task.name, dates, details })
+  if (task.dueTime) params.set('ctz', 'Asia/Tokyo')
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`
+}
