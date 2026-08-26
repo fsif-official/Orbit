@@ -19,9 +19,9 @@ import {
   type Task,
   type TaskStatus,
 } from '@/lib/orbit/types'
-import { formatDeadlineFull, formatDateTime, isOverdue } from '@/lib/orbit/utils'
+import { formatDeadlineFull, formatDateTime, googleCalendarUrl, isOverdue } from '@/lib/orbit/utils'
 import { cn } from '@/lib/utils'
-import { Check, FileText, GitBranch, Pencil, TriangleAlert, UserPlus, X } from 'lucide-react'
+import { CalendarPlus, Check, FileText, GitBranch, Pencil, TriangleAlert, UserPlus, X } from 'lucide-react'
 
 export function TaskDetailDrawer({
   taskId,
@@ -338,6 +338,11 @@ function DrawerBody({
   onProgress: (text: string) => void
 }) {
   const overdue = isOverdue(task)
+  const calendarUrl = googleCalendarUrl(task, {
+    projectName,
+    department: task.department,
+    category: task.category,
+  })
   const isAssignee = !!currentUserId && task.assigneeIds.includes(currentUserId)
   const canChangeStatus = isAdmin || isAssignee
   const canUpdateProgress = isAdmin || isAssignee
@@ -488,15 +493,28 @@ function DrawerBody({
           </Row>
         </dl>
 
-        {hasSourceInput && (
-          <button
-            onClick={onOpenInput}
-            className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-          >
-            <FileText className="size-3.5" />
-            元の入力内容を見る
-          </button>
-        )}
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          {hasSourceInput && (
+            <button
+              onClick={onOpenInput}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+            >
+              <FileText className="size-3.5" />
+              元の入力内容を見る
+            </button>
+          )}
+          {calendarUrl && (
+            <a
+              href={calendarUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+            >
+              <CalendarPlus className="size-3.5" />
+              自分のGoogleカレンダーに追加
+            </a>
+          )}
+        </div>
 
         {/* Status changer */}
         {canChangeStatus && (

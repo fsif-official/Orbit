@@ -117,10 +117,15 @@ function doPost(e) {
         })
         break
       case 'updateAvatar':
+        // choosing a color+initials avatar supersedes any uploaded picture
         result = updateMemberFields(body.memberId, {
           avatar_color: body.avatarColor || '',
           avatar_initials: body.initials || '',
+          avatar_url: '',
         })
+        break
+      case 'uploadAvatar':
+        result = uploadAvatar(body.memberId, body.dataUrl, body.filename, body.folderId)
         break
       case 'addMember':
         result = addMember(body.name, body.email, body.affiliation, body.role)
@@ -459,6 +464,40 @@ function addMember(name, email, affiliation, role) {
   // for admin roles with none, defaulted client-side), so nothing to store
   // for it here; kept as a param for parity with the client-side call.
   return { id: id }
+}
+
+// Saves a profile picture (sent as a data: URL, already resized client-side)
+// into the configured Drive folder, makes it link-viewable so it can be
+// hotlinked from an <img> tag, replaces any previous upload for this
+// member, and records the resulting URL on their Members row.
+function uploadAvatar(memberId, dataUrl, filename, folderId) {
+  if (!folderId) throw new Error('Drive folder is not configured (NEXT_PUBLIC_DRIVE_FOLDER_ID)')
+  var match = String(dataUrl || '').match(/^data:([^;]+);base64,(.*)$/)
+  if (!match) throw new Error('Expected a base64 data URL')
+  var mimeType = match[1]
+  var base64Data = match[2]
+
+  var folder = DriveApp.getFolderById(folderId)
+  var namePrefix = 'avatar_' + memberId + '_'
+
+  // remove any previous upload for this member so the folder doesn't
+  // accumulate orphaned files every time someone changes their picture
+  var existing = folder.getFiles()
+  while (existing.hasNext()) {
+    var f = existing.next()
+    if (f.getName().indexOf(namePrefix) === 0) f.setTrashed(true)
+  }
+
+  var blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType, filename)
+  var file = folder.createFile(blob)
+  file.setName(namePrefix + Date.now())
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW)
+
+  // a thumbnail URL hotlinks reliably in <img> tags (unlike Drive's
+  // "uc?export=view" links, which can trigger a virus-scan interstitial)
+  var url = 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w256'
+  updateMemberFields(memberId, { avatar_url: url })
+  return { url: url }
 }
 
 // Deletes the member's row and clears assignee_id (or removes just their

@@ -23,6 +23,11 @@ const MEMBERS_CSV_URL = process.env.NEXT_PUBLIC_MEMBERS_CSV
 const PROJECTS_CSV_URL = process.env.NEXT_PUBLIC_PROJECTS_CSV
 const TASKS_CSV_URL = process.env.NEXT_PUBLIC_TASKS_CSV
 const GAS_URL = process.env.NEXT_PUBLIC_GAS_URL
+// optional — only gates profile-picture uploads (see gas/README.md); the
+// folder id isn't sensitive on its own (uploaded files get their own
+// per-file sharing, the folder itself needn't be publicly listable), so
+// it's fine to inline like the other NEXT_PUBLIC_ config.
+const DRIVE_FOLDER_ID = process.env.NEXT_PUBLIC_DRIVE_FOLDER_ID
 
 export const isRemoteConfigured = !!(
   MEMBERS_CSV_URL &&
@@ -30,6 +35,8 @@ export const isRemoteConfigured = !!(
   TASKS_CSV_URL &&
   GAS_URL
 )
+
+export const isDriveConfigured = isRemoteConfigured && !!DRIVE_FOLDER_ID
 
 // ---- CSV parsing ------------------------------------------------------
 
@@ -154,6 +161,7 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
     role,
     avatarColor: r.avatar_color || colorForId(r.id),
     initials: r.avatar_initials || initialsForName(r.name),
+    avatarUrl: r.avatar_url || undefined,
     // Fact (past-performance) matching is explicitly out of scope for the
     // alpha (cold start, no history yet) — always empty.
     facts: [],
@@ -308,6 +316,13 @@ export const remoteApi = {
     postToGas('updateVisibility', { taskId, visibility }),
   updateAvatar: (memberId: string, avatarColor: string, initials: string) =>
     postToGas('updateAvatar', { memberId, avatarColor, initials }),
+  uploadAvatarImage: (memberId: string, dataUrl: string, filename: string) =>
+    postToGas<{ url: string }>('uploadAvatar', {
+      memberId,
+      dataUrl,
+      filename,
+      folderId: DRIVE_FOLDER_ID,
+    }),
   addMember: (name: string, email: string, affiliation: string, role: Role) =>
     postToGas<{ id: string }>('addMember', { name, email, affiliation, role }),
   updateEmail: (memberId: string, email: string) => postToGas('updateEmail', { memberId, email }),
