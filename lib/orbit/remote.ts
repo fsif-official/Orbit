@@ -6,15 +6,22 @@
 // exactly as before.
 import type {
   AdminSection,
+  CareerHistoryEntry,
+  Competency,
   Department,
+  DevelopmentPlanEntry,
   Difficulty,
+  EvaluationRecord,
   Member,
+  OneOnOneRecord,
   ParsedTask,
   Priority,
   Project,
   ProjectTemplateTask,
+  Qualification,
   RecurringTaskRule,
   Role,
+  SkillLevel,
   Task,
   TaskComment,
   TaskDeliverable,
@@ -22,6 +29,8 @@ import type {
   TaskRetrospective,
   TaskSetTemplate,
   TaskStatus,
+  TrainingRecord,
+  TransferRecord,
 } from './types'
 import { STATUS_LABEL, isAdminRole } from './types'
 
@@ -191,6 +200,22 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
     unavailableDates: splitTags(r.unavailable_dates),
     reportsToId: r.reports_to_id || undefined,
     mentorId: r.mentor_id || undefined,
+    // ---- タレントマネジメント (人材DB／スキル管理／人材検索／育成・キャリア) ----
+    yearsOfExperience: r.years_of_experience ? Number(r.years_of_experience) : undefined,
+    hasManagementExperience: /^(true|1|yes)$/i.test((r.has_management_experience || '').trim()),
+    desiredAreas: splitTags(r.desired_areas),
+    careerHistory: parseJsonArray<CareerHistoryEntry>(r.career_history_json),
+    qualifications: parseJsonArray<Qualification>(r.qualifications_json),
+    evaluationHistory: parseJsonArray<EvaluationRecord>(r.evaluation_history_json),
+    transferHistory: parseJsonArray<TransferRecord>(r.transfer_history_json),
+    skillLevels: parseJsonArray<SkillLevel>(r.skill_levels_json),
+    competencies: parseJsonArray<Competency>(r.competencies_json),
+    careerAspiration: r.career_aspiration || undefined,
+    desiredFutureRole: r.desired_future_role || undefined,
+    careerPlan: r.career_plan || undefined,
+    trainingHistory: parseJsonArray<TrainingRecord>(r.training_history_json),
+    developmentPlan: parseJsonArray<DevelopmentPlanEntry>(r.development_plan_json),
+    oneOnOnes: parseJsonArray<OneOnOneRecord>(r.one_on_ones_json),
   }
 }
 
@@ -477,6 +502,33 @@ export const remoteApi = {
     postToGas('updateActualHours', { taskId, hours }),
   updateRetrospective: (taskId: string, retrospective: TaskRetrospective | null) =>
     postToGas('updateRetrospective', { taskId, retrospective }),
+  // ---- タレントマネジメント ----
+  updateSearchProfile: (
+    memberId: string,
+    profile: { yearsOfExperience: number | null; hasManagementExperience: boolean; desiredAreas: string[] },
+  ) => postToGas('updateSearchProfile', { memberId, ...profile }),
+  updateCareerHistory: (memberId: string, entries: CareerHistoryEntry[]) =>
+    postToGas('updateCareerHistory', { memberId, entries }),
+  updateQualifications: (memberId: string, entries: Qualification[]) =>
+    postToGas('updateQualifications', { memberId, entries }),
+  updateEvaluationHistory: (memberId: string, entries: EvaluationRecord[]) =>
+    postToGas('updateEvaluationHistory', { memberId, entries }),
+  updateTransferHistory: (memberId: string, entries: TransferRecord[]) =>
+    postToGas('updateTransferHistory', { memberId, entries }),
+  updateSkillLevels: (memberId: string, levels: SkillLevel[]) =>
+    postToGas('updateSkillLevels', { memberId, levels }),
+  updateCompetencies: (memberId: string, competencies: Competency[]) =>
+    postToGas('updateCompetencies', { memberId, competencies }),
+  updateCareerGoals: (
+    memberId: string,
+    goals: { careerAspiration: string; desiredFutureRole: string; careerPlan: string },
+  ) => postToGas('updateCareerGoals', { memberId, ...goals }),
+  updateTrainingHistory: (memberId: string, entries: TrainingRecord[]) =>
+    postToGas('updateTrainingHistory', { memberId, entries }),
+  updateDevelopmentPlan: (memberId: string, entries: DevelopmentPlanEntry[]) =>
+    postToGas('updateDevelopmentPlan', { memberId, entries }),
+  updateOneOnOnes: (memberId: string, entries: OneOnOneRecord[]) =>
+    postToGas('updateOneOnOnes', { memberId, entries }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to

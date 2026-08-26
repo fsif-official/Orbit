@@ -10,11 +10,18 @@ import {
 } from 'react'
 import type {
   AdminSection,
+  CareerHistoryEntry,
+  Competency,
+  DevelopmentPlanEntry,
+  EvaluationRecord,
   Member,
+  OneOnOneRecord,
   Project,
   ProjectTemplateTask,
   RecurringTaskRule,
+  Qualification,
   Role,
+  SkillLevel,
   Task,
   TaskComment,
   TaskDeliverable,
@@ -23,6 +30,8 @@ import type {
   TaskSetTemplate,
   TaskSetTemplateItem,
   TaskStatus,
+  TrainingRecord,
+  TransferRecord,
   Priority,
   Difficulty,
   TaskInput,
@@ -182,6 +191,24 @@ interface OrbitContextValue extends OrbitState {
   updateRole: (memberId: string, role: Role) => void
   updateReportsTo: (memberId: string, reportsToId: string | null) => void
   updateMentor: (memberId: string, mentorId: string | null) => void
+  // ---- タレントマネジメント ----
+  updateSearchProfile: (
+    memberId: string,
+    profile: { yearsOfExperience: number | null; hasManagementExperience: boolean; desiredAreas: string[] },
+  ) => void
+  updateCareerHistory: (memberId: string, entries: CareerHistoryEntry[]) => void
+  updateQualifications: (memberId: string, entries: Qualification[]) => void
+  updateEvaluationHistory: (memberId: string, entries: EvaluationRecord[]) => void
+  updateTransferHistory: (memberId: string, entries: TransferRecord[]) => void
+  updateSkillLevels: (memberId: string, levels: SkillLevel[]) => void
+  updateCompetencies: (memberId: string, competencies: Competency[]) => void
+  updateCareerGoals: (
+    memberId: string,
+    goals: { careerAspiration: string; desiredFutureRole: string; careerPlan: string },
+  ) => void
+  updateTrainingHistory: (memberId: string, entries: TrainingRecord[]) => void
+  updateDevelopmentPlan: (memberId: string, entries: DevelopmentPlanEntry[]) => void
+  updateOneOnOnes: (memberId: string, entries: OneOnOneRecord[]) => void
   updateDisplayName: (memberId: string, displayName: string) => void
   toggleUnavailableDate: (memberId: string, date: string) => void
   updateSchedule: (id: string, startDate: string | null, deadline: string | null) => void
@@ -1415,6 +1442,131 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  // ---- タレントマネジメント（人材DB／スキル管理／人材検索／育成・キャリア）----
+  const updateSearchProfile = useCallback(
+    (
+      memberId: string,
+      profile: {
+        yearsOfExperience: number | null
+        hasManagementExperience: boolean
+        desiredAreas: string[]
+      },
+    ) => {
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === memberId
+            ? {
+                ...m,
+                yearsOfExperience: profile.yearsOfExperience ?? undefined,
+                hasManagementExperience: profile.hasManagementExperience,
+                desiredAreas: profile.desiredAreas,
+              }
+            : m,
+        ),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateSearchProfile(memberId, profile))
+    },
+    [runRemote],
+  )
+
+  const updateCareerHistory = useCallback(
+    (memberId: string, entries: CareerHistoryEntry[]) => {
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, careerHistory: entries } : m)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateCareerHistory(memberId, entries))
+    },
+    [runRemote],
+  )
+
+  const updateQualifications = useCallback(
+    (memberId: string, entries: Qualification[]) => {
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, qualifications: entries } : m)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateQualifications(memberId, entries))
+    },
+    [runRemote],
+  )
+
+  const updateEvaluationHistory = useCallback(
+    (memberId: string, entries: EvaluationRecord[]) => {
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, evaluationHistory: entries } : m)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateEvaluationHistory(memberId, entries))
+    },
+    [runRemote],
+  )
+
+  const updateTransferHistory = useCallback(
+    (memberId: string, entries: TransferRecord[]) => {
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, transferHistory: entries } : m)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateTransferHistory(memberId, entries))
+    },
+    [runRemote],
+  )
+
+  const updateSkillLevels = useCallback(
+    (memberId: string, levels: SkillLevel[]) => {
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, skillLevels: levels } : m)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateSkillLevels(memberId, levels))
+    },
+    [runRemote],
+  )
+
+  const updateCompetencies = useCallback(
+    (memberId: string, competencies: Competency[]) => {
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, competencies } : m)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateCompetencies(memberId, competencies))
+    },
+    [runRemote],
+  )
+
+  const updateCareerGoals = useCallback(
+    (
+      memberId: string,
+      goals: { careerAspiration: string; desiredFutureRole: string; careerPlan: string },
+    ) => {
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === memberId
+            ? {
+                ...m,
+                careerAspiration: goals.careerAspiration || undefined,
+                desiredFutureRole: goals.desiredFutureRole || undefined,
+                careerPlan: goals.careerPlan || undefined,
+              }
+            : m,
+        ),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateCareerGoals(memberId, goals))
+    },
+    [runRemote],
+  )
+
+  const updateTrainingHistory = useCallback(
+    (memberId: string, entries: TrainingRecord[]) => {
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, trainingHistory: entries } : m)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateTrainingHistory(memberId, entries))
+    },
+    [runRemote],
+  )
+
+  const updateDevelopmentPlan = useCallback(
+    (memberId: string, entries: DevelopmentPlanEntry[]) => {
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, developmentPlan: entries } : m)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateDevelopmentPlan(memberId, entries))
+    },
+    [runRemote],
+  )
+
+  const updateOneOnOnes = useCallback(
+    (memberId: string, entries: OneOnOneRecord[]) => {
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, oneOnOnes: entries } : m)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateOneOnOnes(memberId, entries))
+    },
+    [runRemote],
+  )
+
   const updateDisplayName = useCallback(
     (memberId: string, displayName: string) => {
       const trimmed = displayName.trim()
@@ -1928,6 +2080,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateRole,
     updateReportsTo,
     updateMentor,
+    updateSearchProfile,
+    updateCareerHistory,
+    updateQualifications,
+    updateEvaluationHistory,
+    updateTransferHistory,
+    updateSkillLevels,
+    updateCompetencies,
+    updateCareerGoals,
+    updateTrainingHistory,
+    updateDevelopmentPlan,
+    updateOneOnOnes,
     updateDisplayName,
     toggleUnavailableDate,
     updateSchedule,

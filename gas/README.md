@@ -27,6 +27,21 @@ Apps Script Web App 経由で行います（アルファ版設計ドキュメン
 | avatar_color | アイコンの背景色（16進カラーコード、任意）。個人ページから本人が変更できます。空欄の場合はIDから自動生成された色になります |
 | avatar_initials | アイコンに表示するイニシャル（任意、2文字まで）。空欄の場合は氏名から自動生成されます |
 | avatar_url | アップロードされたプロフィール画像のURL（任意）。個人ページから本人が画像をアップロードすると自動で設定されます。設定されている間は `avatar_color` / `avatar_initials` より優先して表示されます。色・イニシャルを選び直すと自動でクリアされます |
+| years_of_experience | 経験年数（数値、任意）。個人ページの「経歴・キャリア」タブから編集し、Admin → Membersの人材検索フィルタで使われます |
+| has_management_experience | TRUE なら管理職経験あり。同上、人材検索フィルタで使われます |
+| desired_areas | 成長したい領域・スキル（カンマ区切り、任意）。Will（やりたいこと）や skills（保有スキル）とは別項目で、人材検索フィルタで使われます |
+| career_history_json | 経歴の配列（JSON文字列、例：`[{"id":"c-1","startDate":"2024-04-01","affiliation":"...","role":"...","description":"..."}]`）。個人ページの「経歴・キャリア」タブで本人が編集できます |
+| qualifications_json | 保有資格の配列（JSON文字列）。同タブで本人が編集できます |
+| evaluation_history_json | 評価履歴の配列（JSON文字列、評価者ID・評価・コメントを含む）。管理者のみが同タブから編集できます |
+| transfer_history_json | 異動履歴の配列（JSON文字列）。管理者のみが同タブから編集できます |
+| skill_levels_json | スキルごとの習熟度（1〜5、JSON文字列）。本人が同タブから編集できます |
+| competencies_json | 役職に関連するコンピテンシー評価（1〜5、JSON文字列）。管理者のみが同タブから編集できます |
+| career_aspiration | 将来やりたいこと・キャリア志向（自由記述、任意）。本人が同タブから編集できます |
+| desired_future_role | 目指したい役職・ポジション（自由記述、任意）。同上 |
+| career_plan | キャリアプランのメモ（自由記述、任意）。同上 |
+| training_history_json | 研修受講履歴の配列（JSON文字列）。管理者が同タブから編集できます |
+| development_plan_json | 育成計画（目標・達成目安日・状態の配列、JSON文字列）。管理者と本人の双方が同タブから編集できます |
+| one_on_ones_json | 1on1記録の配列（JSON文字列、日付・相手ID・メモ）。管理者が同タブから編集できます |
 
 Admin → Membersの「メンバーを登録」フォームから新規メンバーを直接追加できます
 （役職を「一般」以外にすれば、その場で管理者として登録できます＝管理者登録）。

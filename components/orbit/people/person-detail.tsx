@@ -8,6 +8,7 @@ import { Avatar, StatusBadge, DifficultyBadge, SectionLabel } from '@/components
 import { CalendarView } from '@/components/orbit/output/calendar-view'
 import { TaskDetailDrawer } from '@/components/orbit/output/task-detail-drawer'
 import { EditableTags } from '@/components/orbit/editable-tags'
+import { CareerTab } from '@/components/orbit/people/career-tab'
 import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
 import { formatDeadlineFull } from '@/lib/orbit/utils'
@@ -31,7 +32,7 @@ import {
   FolderKanban,
 } from 'lucide-react'
 
-type Tab = 'overview' | 'growth' | 'calendar'
+type Tab = 'overview' | 'growth' | 'career' | 'calendar'
 
 // Downscales/crops an uploaded image to a square JPEG data URL so avatar
 // uploads stay small and consistent, regardless of the source photo's size.
@@ -80,6 +81,17 @@ export function PersonDetail({ id }: { id: string }) {
     jobRequirements,
     skillOptions,
     addSkillOption,
+    updateSearchProfile,
+    updateCareerHistory,
+    updateQualifications,
+    updateEvaluationHistory,
+    updateTransferHistory,
+    updateSkillLevels,
+    updateCompetencies,
+    updateCareerGoals,
+    updateTrainingHistory,
+    updateDevelopmentPlan,
+    updateOneOnOnes,
   } = useOrbit()
   const { go } = useNav()
   const toast = useToast()
@@ -360,6 +372,7 @@ export function PersonDetail({ id }: { id: string }) {
           [
             ['overview', 'Overview'],
             ...(isSelf || isAdmin ? [['growth', '人材育成']] : []),
+            ...(isSelf || isAdmin ? [['career', '経歴・キャリア']] : []),
             ['calendar', 'Calendar'],
           ] as [Tab, string][]
         ).map(([key, label]) => (
@@ -562,6 +575,28 @@ export function PersonDetail({ id }: { id: string }) {
             </div>
           )}
         </div>
+      )}
+
+      {tab === 'career' && (
+        <CareerTab
+          member={member}
+          members={members}
+          editable={isSelf || isAdmin}
+          editableAdminOnly={isAdmin}
+          skillOptions={skillOptions}
+          updateSearchProfile={updateSearchProfile}
+          updateCareerHistory={updateCareerHistory}
+          updateQualifications={updateQualifications}
+          updateEvaluationHistory={updateEvaluationHistory}
+          updateTransferHistory={updateTransferHistory}
+          updateSkillLevels={updateSkillLevels}
+          updateCompetencies={updateCompetencies}
+          updateCareerGoals={updateCareerGoals}
+          updateTrainingHistory={updateTrainingHistory}
+          updateDevelopmentPlan={updateDevelopmentPlan}
+          updateOneOnOnes={updateOneOnOnes}
+          currentUserId={currentUser?.id ?? null}
+        />
       )}
 
       {tab === 'calendar' && (

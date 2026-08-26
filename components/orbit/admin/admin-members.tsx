@@ -40,6 +40,11 @@ export function AdminMembers() {
   const [query, setQuery] = useState('')
   const [removing, setRemoving] = useState<Member | null>(null)
   const [assigningProjects, setAssigningProjects] = useState<Member | null>(null)
+  // 人材検索: filters beyond the free-text query, using the talent-management
+  // fields set on the person page's 経歴・キャリア tab
+  const [minYears, setMinYears] = useState('')
+  const [managementOnly, setManagementOnly] = useState(false)
+  const [desiredArea, setDesiredArea] = useState('')
   const ROLES: Role[] = [BASE_ROLE, ...roleLevels]
   const isTopRole = (role: Role) => roleLevels.length === 0 || role === roleLevels[roleLevels.length - 1]
 
@@ -62,15 +67,33 @@ export function AdminMembers() {
   const activeCount = (m: Member) =>
     tasks.filter((t) => t.assigneeIds.includes(m.id) && t.status !== 'done').length
 
+  // 全メンバーが持つ「成長したい領域」の一覧 — 詳細検索の選択肢に使う
+  const allDesiredAreas = useMemo(
+    () => Array.from(new Set(members.flatMap((m) => m.desiredAreas ?? []))).sort(),
+    [members],
+  )
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return members
-    return members.filter((m) =>
-      [m.name, m.displayName ?? '', m.affiliation, ...m.will, ...m.judgment, ...m.skills].some((v) =>
-        v.toLowerCase().includes(q),
-      ),
-    )
-  }, [members, query])
+    const min = minYears.trim() ? Number(minYears) : null
+    return members.filter((m) => {
+      if (q) {
+        const matchesText = [
+          m.name,
+          m.displayName ?? '',
+          m.affiliation,
+          ...m.will,
+          ...m.judgment,
+          ...m.skills,
+        ].some((v) => v.toLowerCase().includes(q))
+        if (!matchesText) return false
+      }
+      if (min !== null && (m.yearsOfExperience ?? 0) < min) return false
+      if (managementOnly && !m.hasManagementExperience) return false
+      if (desiredArea && !(m.desiredAreas ?? []).includes(desiredArea)) return false
+      return true
+    })
+  }, [members, query, minYears, managementOnly, desiredArea])
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
@@ -121,14 +144,48 @@ export function AdminMembers() {
         </div>
       </div>
 
-      <div className="relative mt-4 max-w-sm">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="relative max-w-sm flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="名前・所属・タグで検索"
+            className="h-9 w-full rounded-lg border border-border bg-card pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
+          />
+        </div>
+        {/* 人材検索: 経歴・キャリアタブで登録された属性での絞り込み */}
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="名前・所属・タグで検索"
-          className="h-9 w-full rounded-lg border border-border bg-card pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
+          type="number"
+          min={0}
+          value={minYears}
+          onChange={(e) => setMinYears(e.target.value)}
+          placeholder="経験年数以上"
+          className="h-9 w-28 rounded-lg border border-border bg-card px-2.5 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
         />
+        <label className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-sm">
+          <input
+            type="checkbox"
+            checked={managementOnly}
+            onChange={(e) => setManagementOnly(e.target.checked)}
+            className="size-3.5 accent-primary"
+          />
+          管理職経験あり
+        </label>
+        {allDesiredAreas.length > 0 && (
+          <select
+            value={desiredArea}
+            onChange={(e) => setDesiredArea(e.target.value)}
+            className="h-9 cursor-pointer rounded-lg border border-border bg-card px-2.5 text-sm outline-none focus:border-primary"
+          >
+            <option value="">成長したい領域（すべて）</option>
+            {allDesiredAreas.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="mt-4 overflow-hidden rounded-lg border border-border bg-card">
