@@ -11,21 +11,48 @@ import { Check, Plus, Sparkles, Trash2 } from 'lucide-react'
 
 export function ParsedTaskCard({
   task,
+  selected,
+  onToggleSelect,
   onChange,
   onToggle,
   onDelete,
 }: {
   task: ParsedTask
+  selected: boolean
+  onToggleSelect: () => void
   onChange: (t: ParsedTask) => void
   onToggle: () => void
   onDelete: () => void
 }) {
-  const { projects, members, skillOptions, categoryOptions, addSkillOption, addCategoryOption } =
-    useOrbit()
+  const {
+    projects,
+    members,
+    tasks,
+    skillOptions,
+    categoryOptions,
+    addSkillOption,
+    addCategoryOption,
+  } = useOrbit()
   const [skillDraft, setSkillDraft] = useState('')
   const [addingCategory, setAddingCategory] = useState(false)
   const [categoryDraft, setCategoryDraft] = useState('')
   const candidates = rankCandidates(task, members).slice(0, 3)
+
+  // おすすめカテゴリ: this project's most-used categories first, falling
+  // back to 未分類 + the general option pool so there's always something
+  const suggestedCategories = (() => {
+    const tally = new Map<string, number>()
+    tasks
+      .filter((t) => t.projectId === task.projectId && t.category)
+      .forEach((t) => tally.set(t.category, (tally.get(t.category) ?? 0) + 1))
+    const ranked = Array.from(tally.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([c]) => c)
+    const rest = categoryOptions.filter((c) => !ranked.includes(c))
+    return Array.from(new Set([...ranked, ...rest]))
+      .filter((c) => c !== task.category)
+      .slice(0, 4)
+  })()
   const assignees = task.assigneeIds
     .map((id) => members.find((m) => m.id === id))
     .filter(Boolean) as typeof members
@@ -69,6 +96,13 @@ export function ParsedTaskCard({
       )}
     >
       <div className="flex items-start gap-3 border-b border-border px-4 py-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          className="mt-1.5 size-3.5 shrink-0 cursor-pointer accent-primary"
+          aria-label="一括操作の対象に含める"
+        />
         <input
           value={task.name}
           onChange={(e) => set('name', e.target.value)}
@@ -189,6 +223,21 @@ export function ParsedTaskCard({
               <option value="__new__">＋ 新しいカテゴリを追加</option>
             </select>
           )}
+          {!addingCategory && suggestedCategories.length > 0 && (
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              <Sparkles className="size-3 shrink-0 text-primary" />
+              {suggestedCategories.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => set('category', c)}
+                  className="rounded-md border border-primary/25 bg-primary/5 px-1.5 py-0.5 text-[11px] font-medium text-foreground hover:bg-primary/10"
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
         </Field>
 
         <Field label="難易度">
@@ -232,22 +281,23 @@ export function ParsedTaskCard({
               </Tag>
             ))}
             {availableSkills.length > 0 && (
-              <select
-                value=""
-                onChange={(e) => {
-                  const v = e.target.value
-                  if (v && !task.skills.includes(v)) set('skills', [...task.skills, v])
-                }}
-                className="cursor-pointer rounded-md border border-dashed border-border-strong bg-transparent px-1.5 py-0.5 text-[11px] text-muted-foreground outline-none hover:border-border"
-                aria-label="既存のスキルから選択"
-              >
-                <option value="">選択して追加</option>
-                {availableSkills.map((s) => (
-                  <option key={s} value={s}>
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <Sparkles className="size-3 shrink-0 text-primary" />
+                  おすすめ:
+                </span>
+                {availableSkills.slice(0, 6).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => set('skills', [...task.skills, s])}
+                    className="inline-flex items-center gap-0.5 rounded-md border border-primary/25 bg-primary/5 px-1.5 py-0.5 text-[11px] font-medium text-foreground hover:bg-primary/10"
+                  >
+                    <Plus className="size-3 text-primary" />
                     {s}
-                  </option>
+                  </button>
                 ))}
-              </select>
+              </span>
             )}
             <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-border-strong px-1.5 py-0.5">
               <input

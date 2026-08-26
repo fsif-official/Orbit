@@ -123,6 +123,38 @@ function doPost(e) {
           visibility: body.visibility === '幹部' ? '幹部' : '全員',
         })
         break
+      case 'updateReviewer':
+        result = updateTaskFields(body.taskId, { reviewer_id: body.reviewerId || '' })
+        break
+      case 'setBlocker':
+        result = updateTaskFields(body.taskId, {
+          blocker_note: body.note || '',
+          blocker_since: body.note ? body.since || todayStr() : '',
+        })
+        break
+      case 'updateDeliverables':
+        result = updateTaskFields(body.taskId, {
+          deliverables_json: JSON.stringify(body.deliverables || []),
+        })
+        break
+      case 'updateHistory':
+        result = updateTaskFields(body.taskId, {
+          history_json: JSON.stringify(body.history || []),
+        })
+        break
+      case 'updateComments':
+        result = updateTaskFields(body.taskId, {
+          comments_json: JSON.stringify(body.comments || []),
+        })
+        break
+      case 'updateProjectMembers':
+        result = updateProjectFields(body.projectId, {
+          member_ids: (body.memberIds || []).join(','),
+        })
+        break
+      case 'updateProjectOwner':
+        result = updateProjectFields(body.projectId, { owner_id: body.ownerId || '' })
+        break
       case 'updateAvatar':
         // choosing a color+initials avatar supersedes any uploaded picture
         result = updateMemberFields(body.memberId, {
@@ -234,6 +266,10 @@ function createTasks(tasks) {
 
 function updateTaskFields(taskId, fields) {
   return updateRowFields(SHEET_TASKS, taskId, fields)
+}
+
+function updateProjectFields(projectId, fields) {
+  return updateRowFields(SHEET_PROJECTS, projectId, fields)
 }
 
 // Emails whoever is flagged notify_new_task=TRUE on Members, falling back

@@ -5,7 +5,7 @@ import { useTaskDrawer } from '@/lib/orbit/task-drawer'
 import { Avatar, ProjectTag } from '@/components/orbit/primitives'
 import { isOverdue, daysSince, formatDeadline } from '@/lib/orbit/utils'
 import { STATUS_LABEL } from '@/lib/orbit/types'
-import { CircleAlert, Clock, UserX, Activity, FileClock, LifeBuoy } from 'lucide-react'
+import { CircleAlert, Clock, UserX, Activity, FileClock, LifeBuoy, Ban } from 'lucide-react'
 
 export function AdminDashboard() {
   const { adminTasks: tasks, adminPendingTasks: pendingTasks, isFullAdmin, getProject } = useOrbit()
@@ -16,6 +16,7 @@ export function AdminDashboard() {
   const waiting = tasks.filter((t) => t.status === 'review')
   const overdue = tasks.filter((t) => isOverdue(t))
   const unassigned = tasks.filter((t) => t.assigneeIds.length === 0 && t.status !== 'done')
+  const blocked = tasks.filter((t) => !!t.blocker && t.status !== 'done')
   const stale = tasks.filter((t) => {
     const d = daysSince(t.lastActivity)
     return t.status !== 'done' && d !== null && d >= 5
@@ -29,6 +30,7 @@ export function AdminDashboard() {
     { label: '確認待ち', value: waiting.length, tone: 'warn' as const },
     { label: '期限超過', value: overdue.length, tone: 'danger' as const },
     { label: '未アサイン', value: unassigned.length, tone: 'accent' as const },
+    { label: 'Blocked', value: blocked.length, tone: 'danger' as const },
   ]
 
   const toneClass: Record<string, string> = {
@@ -111,6 +113,14 @@ export function AdminDashboard() {
             icon={<Activity className="size-4 text-muted-foreground" />}
             tasks={stale}
             renderMeta={(t) => `${daysSince(t.lastActivity)}日間更新なし`}
+            onOpen={openTask}
+            getProject={getProject}
+          />
+          <AttentionGroup
+            title="Blocked Tasks"
+            icon={<Ban className="size-4 text-destructive" />}
+            tasks={blocked}
+            renderMeta={(t) => t.blocker?.note ?? ''}
             onOpen={openTask}
             getProject={getProject}
           />

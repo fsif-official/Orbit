@@ -54,6 +54,9 @@ Admin → Membersの「メンバーを登録」フォームから新規メンバ
 | description | 概要 |
 | type | プロジェクトの種類（例：コンテンツ開発）。Admin → Projects でこの種類ごとの
   テンプレートタスクを設定でき、新規プロジェクト作成時に自動で追加されます |
+| member_ids | 担当者のメンバーID（複数可、カンマ区切り）。Admin → Projects から設定でき、
+  このプロジェクトのタスクに新しく誰かをアサインすると自動的にここへ追加されます |
+| owner_id | 責任者のメンバーID（任意）。Admin → Projects から設定します |
 
 ### Tasks
 設計ドキュメント §4 の基本列に加え、UIが使う追加列（`department` 以降）があります。
@@ -89,6 +92,17 @@ Admin → Membersの「メンバーを登録」フォームから新規メンバ
 | depends_on_ids | このタスクの前提タスクID（複数可、カンマ区切り）。ワークスペースの
   「依存関係」表示で、枝でつないだツリーとして表示されます（既存の「ワークフロー」
   カンバンとは別のビューです） |
+| reviewer_id | 担当者とは別の「確認者」メンバーID（任意）。タスク詳細から設定でき、
+  「確認待ち」ステータスと組み合わせて誰の確認待ちかを明確にします |
+| blocker_note | 「困っている/作業が止まっている」ことを示すメモ（任意、空欄なら
+  ブロックされていない）。Admin ダッシュボードの Blocked Tasks に表示されます |
+| blocker_since | ブロック登録日（YYYY-MM-DD）。`blocker_note` と同時に設定されます |
+| deliverables_json | 成果物リンクの配列（JSON文字列、例：
+  `[{"id":"dl-1","label":"ポスターPDF","url":"https://drive.google.com/..."}]`）。
+  タスク詳細と個人の実績ページに表示されます |
+| history_json | フィールド変更履歴の配列（JSON文字列）。担当者・期限・開始日・
+  優先度・ステータス・確認者の変更を記録し、タスク詳細に表示されます |
+| comments_json | コメントの配列（JSON文字列）。タスク詳細のコメント欄に表示されます |
 
 > `accepted_at` / `deliverable_url` / `feedback_comment` は現状のUIからは未使用です（次フェーズ）。列として残しておいて構いません。
 
@@ -204,12 +218,13 @@ localStorageにのみ保存され、他の人の画面には反映されませ�
 4. リポジトリの Secrets に `SETTINGS_CSV` としてこのURLを追加
 
 設定すると、要求スキル・カテゴリ・権限レベル・権限レベルごとの管理画面表示範囲・
-プロジェクトテンプレートの追加や削除がその場でSettingsシートに書き込まれ（`key` 列は
-`skill_options` / `category_options` / `role_levels` / `role_permissions` /
-`project_templates`、`value` 列はカンマ区切り文字列、`role_permissions` と
-`project_templates` のみJSON文字列）、次回以降は誰の画面を開いてもそこから読み込ま
-れます。未設定の場合はこれまで通りブラウザごとのlocalStorageにフォールバックし、
-何も壊れません。
+プロジェクトテンプレート・業務テンプレート・定期タスクルールの追加や削除がその場で
+Settingsシートに書き込まれ（`key` 列は `skill_options` / `category_options` /
+`role_levels` / `role_permissions` / `project_templates` / `task_set_templates` /
+`recurring_rules`、`value` 列はカンマ区切り文字列、`role_permissions` /
+`project_templates` / `task_set_templates` / `recurring_rules` のみJSON文字列）、
+次回以降は誰の画面を開いてもそこから読み込まれます。未設定の場合はこれまで通り
+ブラウザごとのlocalStorageにフォールバックし、何も壊れません。
 
 ## 5. 動作確認
 
