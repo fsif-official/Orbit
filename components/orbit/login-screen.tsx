@@ -3,20 +3,17 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useOrbit } from '@/lib/orbit/store'
-import { MEMBERS } from '@/lib/orbit/seed'
 import { Modal } from './modal'
 import { Avatar, OrbitMark } from './primitives'
 import { ChevronRight, TriangleAlert } from 'lucide-react'
 
 export function LoginScreen() {
-  const { login } = useOrbit()
+  const { login, members } = useOrbit()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
 
-  const demoUsers = MEMBERS.filter(
-    (m) => m.id === 'm-sato' || m.id === 'm-manabe',
-  )
+  const demoUsers = members
 
   const handleGoogle = () => {
     setError(false)
