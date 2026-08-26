@@ -22,7 +22,9 @@ export function KanbanCard({
 }) {
   const { getMember, getProject } = useOrbit()
   const { go } = useNav()
-  const assignee = getMember(task.assigneeId)
+  const assignees = task.assigneeIds.map((id) => getMember(id)).filter(Boolean) as Array<
+    NonNullable<ReturnType<typeof getMember>>
+  >
   const project = getProject(task.projectId)
   const deadline = deadlineLevel(task)
   const urgent = deadline.level === 'overdue' || deadline.level === 'today'
@@ -61,19 +63,28 @@ export function KanbanCard({
       <p className="text-sm font-medium leading-snug text-pretty">{task.name}</p>
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          {assignee ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                go({ name: 'person', id: assignee.id })
-              }}
-              className="flex items-center gap-1.5 hover:underline"
-            >
-              <Avatar member={assignee} size={20} />
-              <span className="text-xs text-muted-foreground">{assignee.name}</span>
-            </button>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {assignees.length > 0 ? (
+            <div className="flex min-w-0 items-center gap-1">
+              <div className="flex shrink-0 -space-x-1.5">
+                {assignees.slice(0, 3).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      go({ name: 'person', id: m.id })
+                    }}
+                    className="rounded-full ring-2 ring-card hover:z-10"
+                  >
+                    <Avatar member={m} size={20} />
+                  </button>
+                ))}
+              </div>
+              <span className="truncate text-xs text-muted-foreground">
+                {assignees.map((m) => m.name).join('、')}
+              </span>
+            </div>
           ) : (
             <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
               未アサイン

@@ -41,12 +41,21 @@ function doPost(e) {
           last_activity: todayStr(),
           completed_date: body.status === '完了' ? todayStr() : '',
         })
+        // the assignee's "I'm done" signal — email the admins so they know
+        // to go confirm it (they already see it in their 確認待ち panel)
+        if (body.status === '確認待ち') notifyReview(body.taskId)
         break
       case 'assignTask':
-        result = updateTaskFields(body.taskId, { assignee_id: body.assigneeId || '' })
+        result = updateTaskFields(body.taskId, {
+          assignee_id: (body.assigneeIds || []).join(','),
+        })
+        syncCalendarForTask(body.taskId)
         break
       case 'updatePriority':
         result = updateTaskFields(body.taskId, { priority: body.priority })
+        break
+      case 'updateDifficulty':
+        result = updateTaskFields(body.taskId, { difficulty: body.difficulty })
         break
       case 'updateProgress':
         result = updateTaskFields(body.taskId, {
@@ -66,7 +75,7 @@ function doPost(e) {
         result = updateTaskFields(body.taskId, { approval_status: '承認済み' })
         break
       case 'createProject':
-        result = createProject(body.name, body.description)
+        result = createProject(body.name, body.description, body.type)
         break
       case 'removeMember':
         result = removeMember(body.memberId)
@@ -114,13 +123,15 @@ function createTasks(tasks) {
         case 'assign_type':
           return 'open_bid'
         case 'assignee_id':
-          return ''
+          return (t.assigneeIds || []).join(',')
         case 'creator_id':
           return t.creatorId || ''
         case 'created_at':
           return today
         case 'due_date':
           return t.deadline || ''
+        case 'due_time':
+          return t.dueTime || ''
         case 'visibility':
           return '全員'
         case 'department':
@@ -145,9 +156,14 @@ function createTasks(tasks) {
     })
     sheet.appendRow(row)
     created.push({ tempId: t.tempId, id: id })
+    if (t.assigneeIds && t.assigneeIds.length > 0) syncCalendarForTask(id)
   })
 
-  notifyNewTasks(tasks)
+  // template tasks (pendingApproval === false) don't need an approval-queue email
+  var needsApproval = tasks.filter(function (t) {
+    return t.pendingApproval !== false
+  })
+  if (needsApproval.length > 0) notifyNewTasks(needsApproval)
   return created
 }
 
@@ -159,6 +175,35 @@ function updateTaskFields(taskId, fields) {
 // to every 代表 if nobody opted in (a notification must always go out
 // somewhere). Best-effort: a mail failure never fails task creation.
 function notifyNewTasks(tasks) {
+  var titles = tasks.map(function (t) {
+    return '・' + t.title
+  })
+  notifyAdmins(
+    '[Orbit] 新しいタスクが承認待ちです（' + tasks.length + '件）',
+    '以下のタスクが登録され、承認待ちです。\n\n' +
+      titles.join('\n') +
+      '\n\nOrbitの管理画面 > 承認 から確認してください。',
+  )
+}
+
+// Emails admins when an assignee marks a task 確認待ち (their "I'm done,
+// please confirm" signal).
+function notifyReview(taskId) {
+  try {
+    var task = findRow(SHEET_TASKS, taskId)
+    if (!task) return
+    notifyAdmins(
+      '[Orbit] タスクの確認をお願いします',
+      '「' + task.title + '」が確認待ちになりました。\n\nOrbitで確認し、問題なければ「完了」にしてください。',
+    )
+  } catch (err) {
+    // best-effort
+  }
+}
+
+// Shared recipient logic: notify_new_task=TRUE members, or every 代表 if
+// nobody opted in. Best-effort — a mail failure is swallowed.
+function notifyAdmins(subject, body) {
   try {
     var sheet = getSheet(SHEET_MEMBERS)
     var headers = headerRow(sheet)
@@ -180,25 +225,73 @@ function notifyNewTasks(tasks) {
     var recipients = opted.length > 0 ? opted : reps
     if (recipients.length === 0) return
 
-    var titles = tasks.map(function (t) {
-      return '・' + t.title
-    })
-    MailApp.sendEmail({
-      to: recipients.join(','),
-      subject: '[Orbit] 新しいタスクが承認待ちです（' + tasks.length + '件）',
-      body:
-        '以下のタスクが登録され、承認待ちです。\n\n' +
-        titles.join('\n') +
-        '\n\nOrbitの管理画面 > 承認 から確認してください。',
-    })
+    MailApp.sendEmail({ to: recipients.join(','), subject: subject, body: body })
   } catch (err) {
-    // swallow — a mail error shouldn't roll back task creation
+    // swallow — a mail error shouldn't roll back the caller's action
+  }
+}
+
+// Creates/updates a Google Calendar event (on this script's default
+// calendar) for a task's assignees, inviting them by email if known.
+// Best-effort — never throws back to the caller.
+function syncCalendarForTask(taskId) {
+  try {
+    var task = findRow(SHEET_TASKS, taskId)
+    if (!task || !task.due_date) return
+
+    var assigneeIds = String(task.assignee_id || '')
+      .split(',')
+      .map(function (s) {
+        return s.trim()
+      })
+      .filter(Boolean)
+    if (assigneeIds.length === 0) return
+
+    var members = getSheet(SHEET_MEMBERS)
+    var mHeaders = headerRow(members)
+    var idCol = mHeaders.indexOf('id')
+    var emailCol = mHeaders.indexOf('email')
+    if (idCol === -1 || emailCol === -1) return
+    var mRows = members.getRange(2, 1, Math.max(members.getLastRow() - 1, 0), mHeaders.length).getValues()
+    var guests = mRows
+      .filter(function (r) {
+        return assigneeIds.indexOf(String(r[idCol])) !== -1
+      })
+      .map(function (r) {
+        return String(r[emailCol] || '').trim()
+      })
+      .filter(Boolean)
+    if (guests.length === 0) return
+
+    var cal = CalendarApp.getDefaultCalendar()
+    var title = '[Orbit] ' + task.title
+    var existing = cal.getEvents(
+      new Date(task.due_date + 'T00:00:00'),
+      new Date(task.due_date + 'T23:59:59'),
+      { search: title },
+    )
+    existing.forEach(function (ev) {
+      ev.deleteEvent()
+    })
+
+    if (task.due_time) {
+      var start = new Date(task.due_date + 'T' + task.due_time + ':00')
+      var end = new Date(start.getTime() + 60 * 60 * 1000)
+      cal.createEvent(title, start, end, { guests: guests.join(','), sendInvites: true })
+    } else {
+      cal.createAllDayEvent(title, new Date(task.due_date + 'T00:00:00'), {
+        guests: guests.join(','),
+        sendInvites: true,
+      })
+    }
+  } catch (err) {
+    // best-effort — Calendar quota/permissions issues shouldn't break assignment
   }
 }
 
 // ---- Projects ---------------------------------------------------------------
 
-function createProject(name, description) {
+function createProject(name, description, type) {
   var sheet = getSheet(SHEET_PROJECTS)
   var headers = headerRow(sheet)
   var id = String(nextIntId(sheet, headers))
@@ -206,6 +299,7 @@ function createProject(name, description) {
     if (h === 'id') return id
     if (h === 'name') return name
     if (h === 'description') return description || ''
+    if (h === 'type') return type || ''
     return ''
   })
   sheet.appendRow(row)
@@ -218,8 +312,8 @@ function updateMemberFields(memberId, fields) {
   return updateRowFields(SHEET_MEMBERS, memberId, fields)
 }
 
-// Deletes the member's row and clears assignee_id on every task assigned
-// to them, so their work goes back to the open pool.
+// Deletes the member's row and clears assignee_id (or removes just their
+// id from a multi-assignee list) on every task assigned to them.
 function removeMember(memberId) {
   var members = getSheet(SHEET_MEMBERS)
   var memberHeaders = headerRow(members)
@@ -240,8 +334,16 @@ function removeMember(memberId) {
     var taskLastRow = tasks.getLastRow()
     var assignees = tasks.getRange(2, assigneeCol, Math.max(taskLastRow - 1, 0), 1).getValues()
     for (var j = 0; j < assignees.length; j++) {
-      if (String(assignees[j][0]) === String(memberId)) {
-        tasks.getRange(j + 2, assigneeCol).setValue('')
+      var remaining = String(assignees[j][0] || '')
+        .split(',')
+        .map(function (s) {
+          return s.trim()
+        })
+        .filter(function (id) {
+          return id && id !== String(memberId)
+        })
+      if (remaining.length !== String(assignees[j][0] || '').split(',').filter(Boolean).length) {
+        tasks.getRange(j + 2, assigneeCol).setValue(remaining.join(','))
       }
     }
   }
@@ -277,6 +379,27 @@ function nextIntId(sheet, headers) {
     if (!isNaN(n) && n > max) max = n
   })
   return max + 1
+}
+
+// Reads a whole row (by its "id" column) into a {headerName: value} object.
+function findRow(sheetName, rowId) {
+  var sheet = getSheet(sheetName)
+  var headers = headerRow(sheet)
+  var idCol = headers.indexOf('id')
+  if (idCol === -1) throw new Error('No "id" column on ' + sheetName)
+
+  var lastRow = sheet.getLastRow()
+  var values = sheet.getRange(2, 1, Math.max(lastRow - 1, 0), headers.length).getValues()
+  for (var i = 0; i < values.length; i++) {
+    if (String(values[i][idCol]) === String(rowId)) {
+      var obj = {}
+      headers.forEach(function (h, c) {
+        obj[h] = values[i][c]
+      })
+      return obj
+    }
+  }
+  return null
 }
 
 // Finds the row whose "id" column equals rowId, and writes `fields`

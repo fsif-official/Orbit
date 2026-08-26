@@ -58,6 +58,22 @@ export interface Project {
   id: string
   name: string
   description: string
+  // project "kind" (e.g. コンテンツ開発) — drives which template tasks get
+  // auto-created for it, see store.tsx's projectTemplates
+  type?: string
+}
+
+// A template task an admin defines for a Project type (store.tsx's
+// projectTemplates), auto-created whenever a new project of that type
+// is added.
+export interface ProjectTemplateTask {
+  id: string
+  name: string
+  department: Department
+  category: string
+  skills: string[]
+  difficulty: Difficulty
+  priority: Priority
 }
 
 export interface Task {
@@ -66,8 +82,9 @@ export interface Task {
   description?: string
   projectId: string
   department: Department
-  assigneeId: string | null
+  assigneeIds: string[]
   deadline: string | null // YYYY-MM-DD
+  dueTime?: string | null // HH:MM, optional time-of-day on top of deadline
   category: string
   skills: string[]
   difficulty: Difficulty
@@ -95,10 +112,12 @@ export interface ParsedTask {
   projectId: string
   department: Department
   deadline: string | null
+  dueTime?: string | null
   category: string
   skills: string[]
   difficulty: Difficulty
   priority: Priority
+  assigneeIds: string[]
   approved: boolean
 }
 

@@ -129,9 +129,12 @@ export function CalendarView({
                     {d}
                   </div>
                   <div className="space-y-1">
-                    {dayTasks.map((t) => {
+                    {dayTasks
+                      .slice()
+                      .sort((a, b) => (a.dueTime ?? '99:99').localeCompare(b.dueTime ?? '99:99'))
+                      .map((t) => {
                       const overdue = t.status !== 'done' && t.deadline! < today
-                      const assignee = getMember(t.assigneeId)
+                      const assignee = getMember(t.assigneeIds[0] ?? null)
                       return (
                         <button
                           key={t.id}
@@ -144,6 +147,11 @@ export function CalendarView({
                           )}
                         >
                           <Avatar member={assignee} size={16} />
+                          {t.dueTime && (
+                            <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+                              {t.dueTime}
+                            </span>
+                          )}
                           <span className="truncate text-[11px] font-medium leading-tight">
                             {t.name}
                           </span>

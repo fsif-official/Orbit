@@ -24,7 +24,7 @@ export function AdminMembers() {
   const [removing, setRemoving] = useState<Member | null>(null)
 
   const activeCount = (m: Member) =>
-    tasks.filter((t) => t.assigneeId === m.id && t.status !== 'done').length
+    tasks.filter((t) => t.assigneeIds.includes(m.id) && t.status !== 'done').length
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()

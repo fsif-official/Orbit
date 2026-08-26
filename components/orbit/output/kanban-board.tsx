@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { Task, TaskStatus } from '@/lib/orbit/types'
 import { STATUS_COLOR, STATUS_LABEL, STATUS_ORDER } from '@/lib/orbit/types'
 import { useOrbit } from '@/lib/orbit/store'
+import { useToast } from '../toast'
 import { KanbanCard } from './kanban-card'
 import { cn } from '@/lib/utils'
 
@@ -14,12 +15,20 @@ export function KanbanBoard({
   tasks: Task[]
   onOpenTask: (id: string) => void
 }) {
-  const { updateTaskStatus } = useOrbit()
+  const { updateTaskStatus, currentUser } = useOrbit()
+  const toast = useToast()
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [overColumn, setOverColumn] = useState<TaskStatus | null>(null)
 
   const handleDrop = (status: TaskStatus) => {
-    if (draggingId) updateTaskStatus(draggingId, status)
+    if (draggingId) {
+      // only an admin can move a card straight to 完了 — see task-detail-drawer
+      if (status === 'done' && currentUser?.role !== 'admin') {
+        toast('「完了」への変更は管理者のみ行えます。「確認待ち」にしてください。')
+      } else {
+        updateTaskStatus(draggingId, status)
+      }
+    }
     setDraggingId(null)
     setOverColumn(null)
   }

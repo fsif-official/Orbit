@@ -15,7 +15,7 @@ export function ProjectView() {
         const done = pt.filter((t) => t.status === 'done').length
         const waiting = pt.filter((t) => t.status === 'review').length
         const completion = pt.length ? Math.round((done / pt.length) * 100) : 0
-        const memberIds = Array.from(new Set(pt.map((t) => t.assigneeId).filter(Boolean))) as string[]
+        const memberIds = Array.from(new Set(pt.flatMap((t) => t.assigneeIds)))
         return (
           <button
             key={p.id}

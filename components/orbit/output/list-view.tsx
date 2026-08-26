@@ -32,7 +32,11 @@ export function ListView({
         if (statusFilter !== 'all' && t.status !== statusFilter) return false
         if (departmentFilter !== 'all' && t.department !== departmentFilter) return false
         if (assigneeFilter !== 'all') {
-          if (assigneeFilter === 'unassigned' ? t.assigneeId !== null : t.assigneeId !== assigneeFilter)
+          if (
+            assigneeFilter === 'unassigned'
+              ? t.assigneeIds.length > 0
+              : !t.assigneeIds.includes(assigneeFilter)
+          )
             return false
         }
         return true
@@ -116,7 +120,9 @@ export function ListView({
           </thead>
           <tbody>
             {filtered.map((t) => {
-              const assignee = members.find((m) => m.id === t.assigneeId)
+              const assignees = t.assigneeIds
+                .map((id) => members.find((m) => m.id === id))
+                .filter(Boolean) as typeof members
               const project = projects.find((p) => p.id === t.projectId)
               const overdue = isOverdue(t)
               return (
@@ -127,18 +133,23 @@ export function ListView({
                 >
                   <td className="px-4 py-3 font-medium text-foreground">{t.name}</td>
                   <td className="px-4 py-3">
-                    {assignee ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          go({ name: 'person', id: assignee.id })
-                        }}
-                        className="flex items-center gap-2 text-muted-foreground hover:text-foreground hover:underline"
-                      >
-                        <Avatar member={assignee} size={22} />
-                        {assignee.name}
-                      </button>
+                    {assignees.length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        {assignees.map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              go({ name: 'person', id: m.id })
+                            }}
+                            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:underline"
+                          >
+                            <Avatar member={m} size={22} />
+                            {m.name}
+                          </button>
+                        ))}
+                      </div>
                     ) : (
                       <span className="text-amber-600">未アサイン</span>
                     )}

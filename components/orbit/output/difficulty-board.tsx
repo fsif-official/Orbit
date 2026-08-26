@@ -1,8 +1,11 @@
 'use client'
 
-import type { Task } from '@/lib/orbit/types'
+import { useState } from 'react'
+import type { Difficulty, Task } from '@/lib/orbit/types'
 import { DIFFICULTY_LABEL } from '@/lib/orbit/types'
+import { useOrbit } from '@/lib/orbit/store'
 import { KanbanCard } from './kanban-card'
+import { cn } from '@/lib/utils'
 
 export function DifficultyBoard({
   tasks,
@@ -11,6 +14,16 @@ export function DifficultyBoard({
   tasks: Task[]
   onOpenTask: (id: string) => void
 }) {
+  const { updateDifficulty } = useOrbit()
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [overColumn, setOverColumn] = useState<Difficulty | null>(null)
+
+  const handleDrop = (difficulty: Difficulty) => {
+    if (draggingId) updateDifficulty(draggingId, difficulty)
+    setDraggingId(null)
+    setOverColumn(null)
+  }
+
   return (
     <div className="flex gap-3 overflow-x-auto orbit-scroll pb-4">
       {DIFFICULTY_LABEL.map((difficulty) => {
@@ -18,7 +31,20 @@ export function DifficultyBoard({
         return (
           <div
             key={difficulty}
-            className="flex w-[276px] shrink-0 flex-col rounded-xl border border-border bg-secondary/50"
+            onDragOver={(e) => {
+              e.preventDefault()
+              setOverColumn(difficulty)
+            }}
+            onDragLeave={(e) => {
+              if (e.currentTarget === e.target) setOverColumn(null)
+            }}
+            onDrop={() => handleDrop(difficulty)}
+            className={cn(
+              'flex w-[276px] shrink-0 flex-col rounded-xl border transition-colors',
+              overColumn === difficulty
+                ? 'border-primary/40 bg-primary-muted/40'
+                : 'border-border bg-secondary/50',
+            )}
           >
             <div className="flex items-center justify-between px-3 py-2.5">
               <span className="text-sm font-medium">{difficulty}</span>
@@ -31,13 +57,17 @@ export function DifficultyBoard({
                 <KanbanCard
                   key={task.id}
                   task={task}
-                  onDragStart={() => {}}
+                  dragging={draggingId === task.id}
+                  onDragStart={(e) => {
+                    setDraggingId(task.id)
+                    e.dataTransfer.effectAllowed = 'move'
+                  }}
                   onClick={() => onOpenTask(task.id)}
                 />
               ))}
               {columnTasks.length === 0 && (
                 <div className="flex h-20 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
-                  該当なし
+                  ここにドロップ
                 </div>
               )}
             </div>

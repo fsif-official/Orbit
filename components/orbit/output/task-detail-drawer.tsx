@@ -20,7 +20,7 @@ import {
 } from '@/lib/orbit/types'
 import { formatDeadlineFull, formatDateTime, isOverdue } from '@/lib/orbit/utils'
 import { cn } from '@/lib/utils'
-import { FileText, TriangleAlert, UserPlus, X } from 'lucide-react'
+import { Check, FileText, TriangleAlert, UserPlus, X } from 'lucide-react'
 
 export function TaskDetailDrawer({
   taskId,
@@ -48,6 +48,9 @@ export function TaskDetailDrawer({
   const task = tasks.find((t) => t.id === taskId) ?? null
   const open = !!taskId
   const sourceInput = getInput(task?.originalInputId)
+  const assignees = (task?.assigneeIds ?? [])
+    .map((id) => getMember(id))
+    .filter(Boolean) as Member[]
 
   return (
     <>
@@ -57,7 +60,7 @@ export function TaskDetailDrawer({
             task={task}
             currentUserId={currentUser?.id ?? null}
             isAdmin={currentUser?.role === 'admin'}
-            assignee={getMember(task.assigneeId) ?? null}
+            assignees={assignees}
             creator={getMember(task.createdById ?? null) ?? null}
             projectName={getProject(task.projectId)?.name ?? ''}
             hasSourceInput={!!sourceInput}
@@ -102,7 +105,7 @@ export function TaskDetailDrawer({
       <Modal open={confirmTake} onClose={() => setConfirmTake(false)}>
         <h2 className="text-base font-semibold">このタスクを担当しますか？</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          「{task?.name}」の担当者としてあなたが登録されます。
+          「{task?.name}」の担当者としてあなたが追加されます。
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="ghost" className="h-9" onClick={() => setConfirmTake(false)}>
@@ -111,8 +114,8 @@ export function TaskDetailDrawer({
           <Button
             className="h-9"
             onClick={() => {
-              if (task && currentUser) {
-                assignTask(task.id, currentUser.id)
+              if (task && currentUser && !task.assigneeIds.includes(currentUser.id)) {
+                assignTask(task.id, [...task.assigneeIds, currentUser.id])
                 toast('このタスクの担当になりました')
               }
               setConfirmTake(false)
@@ -123,7 +126,7 @@ export function TaskDetailDrawer({
         </div>
       </Modal>
 
-      {/* Admin assign */}
+      {/* Admin assign (multi-select) */}
       <Modal open={assignOpen} onClose={() => setAssignOpen(false)}>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold">担当者を変更</h2>
@@ -131,38 +134,44 @@ export function TaskDetailDrawer({
             <X className="size-4 text-muted-foreground" />
           </button>
         </div>
+        <p className="mb-2 text-xs text-muted-foreground">複数人選べます。</p>
         <div className="flex max-h-80 flex-col gap-1 overflow-auto orbit-scroll">
           <button
             onClick={() => {
-              if (task) assignTask(task.id, null)
-              setAssignOpen(false)
+              if (task) assignTask(task.id, [])
               toast('担当者を未アサインにしました')
             }}
             className="flex items-center gap-2.5 rounded-lg border border-dashed border-border-strong px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
           >
             <Avatar member={null} size={28} />
-            未アサインにする
+            全員はずす
           </button>
-          {members.map((m) => (
-            <button
-              key={m.id}
-              onClick={() => {
-                if (task) assignTask(task.id, m.id)
-                setAssignOpen(false)
-                toast(`${m.name} をアサインしました`)
-              }}
-              className={cn(
-                'flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm hover:bg-secondary',
-                task?.assigneeId === m.id && 'bg-primary-muted',
-              )}
-            >
-              <Avatar member={m} size={28} />
-              <div className="min-w-0">
-                <div className="font-medium">{m.name}</div>
-                <div className="text-xs text-muted-foreground">{m.affiliation}</div>
-              </div>
-            </button>
-          ))}
+          {members.map((m) => {
+            const checked = !!task?.assigneeIds.includes(m.id)
+            return (
+              <button
+                key={m.id}
+                onClick={() => {
+                  if (!task) return
+                  const next = checked
+                    ? task.assigneeIds.filter((id) => id !== m.id)
+                    : [...task.assigneeIds, m.id]
+                  assignTask(task.id, next)
+                }}
+                className={cn(
+                  'flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm hover:bg-secondary',
+                  checked && 'bg-primary-muted',
+                )}
+              >
+                <Avatar member={m} size={28} />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{m.name}</div>
+                  <div className="text-xs text-muted-foreground">{m.affiliation}</div>
+                </div>
+                {checked && <Check className="size-4 shrink-0 text-primary" strokeWidth={3} />}
+              </button>
+            )
+          })}
         </div>
       </Modal>
     </>
@@ -173,7 +182,7 @@ function DrawerBody({
   task,
   currentUserId,
   isAdmin,
-  assignee,
+  assignees,
   creator,
   projectName,
   hasSourceInput,
@@ -187,7 +196,7 @@ function DrawerBody({
   task: Task
   currentUserId: string | null
   isAdmin: boolean
-  assignee: Member | null
+  assignees: Member[]
   creator: Member | null
   projectName: string
   hasSourceInput: boolean
@@ -199,9 +208,14 @@ function DrawerBody({
   onProgress: (text: string) => void
 }) {
   const overdue = isOverdue(task)
-  const canChangeStatus = isAdmin || task.assigneeId === currentUserId
-  const canUpdateProgress = isAdmin || task.assigneeId === currentUserId
+  const isAssignee = !!currentUserId && task.assigneeIds.includes(currentUserId)
+  const canChangeStatus = isAdmin || isAssignee
+  const canUpdateProgress = isAdmin || isAssignee
   const [progressDraft, setProgressDraft] = useState('')
+
+  // only an admin can move a task to the final 完了 — an assignee's own
+  // "done" signal is 確認待ち, which emails the admin for confirmation
+  const statusOptions = STATUS_ORDER.filter((s) => s !== 'done' || isAdmin)
 
   return (
     <div className="flex h-full flex-col">
@@ -239,11 +253,15 @@ function DrawerBody({
             <span className="text-sm">{task.department}</span>
           </Row>
           <Row label="担当者">
-            {assignee ? (
-              <span className="inline-flex items-center gap-2 text-sm">
-                <Avatar member={assignee} size={22} />
-                {assignee.name}
-              </span>
+            {assignees.length > 0 ? (
+              <div className="flex flex-col items-end gap-1">
+                {assignees.map((a) => (
+                  <span key={a.id} className="inline-flex items-center gap-2 text-sm">
+                    <Avatar member={a} size={22} />
+                    {a.name}
+                  </span>
+                ))}
+              </div>
             ) : (
               <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">
                 未アサイン
@@ -254,6 +272,7 @@ function DrawerBody({
             <span className={cn('inline-flex items-center gap-1.5 text-sm', overdue && 'text-destructive')}>
               {overdue && <TriangleAlert className="size-3.5" />}
               {formatDeadlineFull(task.deadline)}
+              {task.dueTime && <span className="tabular-nums">　{task.dueTime}</span>}
             </span>
           </Row>
           <Row label="ステータス">
@@ -304,7 +323,7 @@ function DrawerBody({
               ステータスを変更
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {STATUS_ORDER.map((s) => (
+              {statusOptions.map((s) => (
                 <button
                   key={s}
                   onClick={() => onStatus(s)}
@@ -320,6 +339,11 @@ function DrawerBody({
                 </button>
               ))}
             </div>
+            {!isAdmin && (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                「確認待ち」にすると管理者に通知され、確認後「完了」になります。
+              </p>
+            )}
           </div>
         )}
 
@@ -373,18 +397,14 @@ function DrawerBody({
             <UserPlus className="size-4" />
             担当者を変更
           </Button>
-        ) : task.assigneeId === null ? (
+        ) : !isAssignee ? (
           <Button className="h-9 w-full" onClick={onTake}>
             <UserPlus className="size-4" />
             このタスクを担当する
           </Button>
-        ) : task.assigneeId === currentUserId ? (
-          <p className="text-center text-xs text-muted-foreground">
-            あなたが担当しています。上のボタンでステータスを更新できます。
-          </p>
         ) : (
           <p className="text-center text-xs text-muted-foreground">
-            {assignee?.name} が担当しています。
+            あなたが担当しています。上のボタンでステータスを更新できます。
           </p>
         )}
       </div>
