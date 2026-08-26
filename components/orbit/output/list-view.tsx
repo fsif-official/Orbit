@@ -25,17 +25,25 @@ export function ListView({
   const [departmentFilter, setDepartmentFilter] = useState('all')
 
   const filtered = useMemo(() => {
-    return tasks.filter((t) => {
-      if (query && !t.name.toLowerCase().includes(query.toLowerCase())) return false
-      if (projectFilter !== 'all' && t.projectId !== projectFilter) return false
-      if (statusFilter !== 'all' && t.status !== statusFilter) return false
-      if (departmentFilter !== 'all' && t.department !== departmentFilter) return false
-      if (assigneeFilter !== 'all') {
-        if (assigneeFilter === 'unassigned' ? t.assigneeId !== null : t.assigneeId !== assigneeFilter)
-          return false
-      }
-      return true
-    })
+    return tasks
+      .filter((t) => {
+        if (query && !t.name.toLowerCase().includes(query.toLowerCase())) return false
+        if (projectFilter !== 'all' && t.projectId !== projectFilter) return false
+        if (statusFilter !== 'all' && t.status !== statusFilter) return false
+        if (departmentFilter !== 'all' && t.department !== departmentFilter) return false
+        if (assigneeFilter !== 'all') {
+          if (assigneeFilter === 'unassigned' ? t.assigneeId !== null : t.assigneeId !== assigneeFilter)
+            return false
+        }
+        return true
+      })
+      // deadline soonest first; tasks with no deadline sort last
+      .sort((a, b) => {
+        if (!a.deadline && !b.deadline) return 0
+        if (!a.deadline) return 1
+        if (!b.deadline) return -1
+        return a.deadline.localeCompare(b.deadline)
+      })
   }, [tasks, query, projectFilter, statusFilter, departmentFilter, assigneeFilter])
 
   const selectCls =

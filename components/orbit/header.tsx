@@ -142,7 +142,12 @@ export function Header() {
                     ADMIN
                   </MenuItem>
                 )}
-                <MenuItem onClick={() => setMenuOpen(false)}>
+                <MenuItem
+                  onClick={() => {
+                    setMenuOpen(false)
+                    go({ name: 'person', id: currentUser.id })
+                  }}
+                >
                   <User className="size-4" />
                   プロフィール
                 </MenuItem>

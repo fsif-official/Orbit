@@ -60,13 +60,15 @@ export function daysSince(d?: string): number | null {
   return Math.round((now - then) / (1000 * 60 * 60 * 24))
 }
 
-// Simple explainable skill matching — count of overlapping skills.
-export function matchSkills(task: Task, member: Member): string[] {
+// Simple explainable skill matching — count of overlapping skills. Accepts
+// any task-shaped object with a skills list, so this also works for a
+// ParsedTask (pre-creation, in the INPUT screen) as well as a saved Task.
+export function matchSkills(task: { skills: string[] }, member: Member): string[] {
   return task.skills.filter((s) => member.skills.includes(s))
 }
 
 export function rankCandidates(
-  task: Task,
+  task: { skills: string[]; assigneeId?: string | null },
   members: Member[],
 ): { member: Member; matches: string[] }[] {
   return members
