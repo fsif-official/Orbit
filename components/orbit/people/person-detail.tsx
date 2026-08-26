@@ -9,14 +9,12 @@ import { TaskDetailDrawer } from '@/components/orbit/output/task-detail-drawer'
 import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
 import { formatDeadlineFull } from '@/lib/orbit/utils'
-import { isAdminRole } from '@/lib/orbit/types'
+import { isAdminRole, BASE_ROLE } from '@/lib/orbit/types'
 import { AVATAR_PALETTE } from '@/lib/orbit/remote'
 import { cn } from '@/lib/utils'
 import { ArrowLeft, Plus, Target, Sparkles, Activity, X, Pencil, Check, CalendarOff } from 'lucide-react'
 
 type Tab = 'overview' | 'growth' | 'calendar'
-
-const ROLE_LABEL: Record<string, string> = { 代表: '代表', 班長: '班長' }
 
 export function PersonDetail({ id }: { id: string }) {
   const {
@@ -158,7 +156,7 @@ export function PersonDetail({ id }: { id: string }) {
             </h1>
           )}
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {ROLE_LABEL[member.role] ?? member.affiliation}
+            {member.role !== BASE_ROLE ? member.role : member.affiliation}
           </p>
         </div>
         <div className="text-right">

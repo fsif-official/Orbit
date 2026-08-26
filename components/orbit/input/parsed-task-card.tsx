@@ -7,16 +7,18 @@ import { useOrbit } from '@/lib/orbit/store'
 import { Card, DifficultyBadge, Tag, Avatar } from '../primitives'
 import { cn } from '@/lib/utils'
 import { rankCandidates } from '@/lib/orbit/utils'
-import { Check, Plus, Sparkles } from 'lucide-react'
+import { Check, Plus, Sparkles, Trash2 } from 'lucide-react'
 
 export function ParsedTaskCard({
   task,
   onChange,
   onToggle,
+  onDelete,
 }: {
   task: ParsedTask
   onChange: (t: ParsedTask) => void
   onToggle: () => void
+  onDelete: () => void
 }) {
   const { projects, members, skillOptions, categoryOptions, addSkillOption, addCategoryOption } =
     useOrbit()
@@ -86,6 +88,15 @@ export function ParsedTaskCard({
           aria-pressed={task.approved}
         >
           <Check className="size-4" strokeWidth={3} />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+          aria-label="このタスクを削除"
+          title="このタスクを削除"
+        >
+          <Trash2 className="size-4" />
         </button>
       </div>
 

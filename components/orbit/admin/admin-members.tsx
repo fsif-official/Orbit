@@ -7,10 +7,9 @@ import { useToast } from '@/components/orbit/toast'
 import { Avatar, Tag } from '@/components/orbit/primitives'
 import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
-import { Search, Bell, UserMinus } from 'lucide-react'
+import { Search, Bell, UserMinus, UserPlus } from 'lucide-react'
+import { BASE_ROLE } from '@/lib/orbit/types'
 import type { Member, Role } from '@/lib/orbit/types'
-
-const ROLES: Role[] = ['一般', '班長', '代表']
 
 function workload(count: number): { label: string; className: string } {
   if (count <= 2) return { label: '稼働少なめ', className: 'text-muted-foreground' }
@@ -19,12 +18,37 @@ function workload(count: number): { label: string; className: string } {
 }
 
 export function AdminMembers() {
-  const { members, visibleTasks: tasks, updateNotify, removeMember, updateRole, updateReportsTo } =
-    useOrbit()
+  const {
+    members,
+    visibleTasks: tasks,
+    updateNotify,
+    removeMember,
+    updateRole,
+    updateReportsTo,
+    roleLevels,
+    addMember,
+  } = useOrbit()
   const { go } = useNav()
   const toast = useToast()
   const [query, setQuery] = useState('')
   const [removing, setRemoving] = useState<Member | null>(null)
+  const ROLES: Role[] = [BASE_ROLE, ...roleLevels]
+
+  const [newName, setNewName] = useState('')
+  const [newEmail, setNewEmail] = useState('')
+  const [newAffiliation, setNewAffiliation] = useState('')
+  const [newRole, setNewRole] = useState<Role>(BASE_ROLE)
+
+  const handleAddMember = () => {
+    const name = newName.trim()
+    if (!name) return
+    addMember(name, newEmail.trim(), newAffiliation.trim(), newRole)
+    toast(`${name} を登録しました`)
+    setNewName('')
+    setNewEmail('')
+    setNewAffiliation('')
+    setNewRole(BASE_ROLE)
+  }
 
   const activeCount = (m: Member) =>
     tasks.filter((t) => t.assigneeIds.includes(m.id) && t.status !== 'done').length
@@ -45,6 +69,48 @@ export function AdminMembers() {
       <p className="mt-1 text-sm text-muted-foreground">
         メンバーのWill・Judgment・実績の一覧です。稼働状況は目安として表示しています。
       </p>
+
+      <div className="mt-6 rounded-lg border border-border bg-card p-4">
+        <div className="text-sm font-medium">メンバーを登録</div>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          役職を「一般」以外にすれば、最初から管理者としてメンバーを追加できます。
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-[1.2fr_1.2fr_1fr_0.8fr_auto]">
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="氏名"
+            className="h-9 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+          />
+          <input
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            placeholder="メールアドレス（任意）"
+            className="h-9 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+          />
+          <input
+            value={newAffiliation}
+            onChange={(e) => setNewAffiliation(e.target.value)}
+            placeholder="所属（任意）"
+            className="h-9 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+          />
+          <select
+            value={newRole}
+            onChange={(e) => setNewRole(e.target.value)}
+            className="h-9 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm outline-none focus:border-primary"
+          >
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          <Button className="h-9" disabled={!newName.trim()} onClick={handleAddMember}>
+            <UserPlus className="size-4" />
+            登録
+          </Button>
+        </div>
+      </div>
 
       <div className="relative mt-4 max-w-sm">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -106,9 +172,9 @@ export function AdminMembers() {
                         onChange={(e) => updateReportsTo(m.id, e.target.value || null)}
                         className="h-8 w-32 cursor-pointer rounded-md border border-border bg-background px-1.5 text-xs outline-none focus:border-primary"
                       >
-                        <option value="">（デフォルト：代表）</option>
+                        <option value="">（デフォルト）</option>
                         {members
-                          .filter((cand) => cand.id !== m.id && cand.role !== '一般')
+                          .filter((cand) => cand.id !== m.id && cand.role !== BASE_ROLE)
                           .map((cand) => (
                             <option key={cand.id} value={cand.id}>
                               {cand.displayName || cand.name}

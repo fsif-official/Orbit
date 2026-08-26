@@ -122,6 +122,9 @@ function doPost(e) {
           avatar_initials: body.initials || '',
         })
         break
+      case 'addMember':
+        result = addMember(body.name, body.email, body.affiliation, body.role)
+        break
       default:
         throw new Error('Unknown action: ' + body.action)
     }
@@ -424,6 +427,35 @@ function createProject(name, description, type) {
 
 function updateMemberFields(memberId, fields) {
   return updateRowFields(SHEET_MEMBERS, memberId, fields)
+}
+
+// Adds a brand-new member row — used by Admin → Members "メンバーを登録",
+// including registering someone directly as an admin (role != 一般).
+function addMember(name, email, affiliation, role) {
+  var sheet = getSheet(SHEET_MEMBERS)
+  var headers = headerRow(sheet)
+  var id = String(nextIntId(sheet, headers))
+  var row = headers.map(function (h) {
+    switch (h) {
+      case 'id':
+        return id
+      case 'name':
+        return name
+      case 'email':
+        return email || ''
+      case 'role':
+        return role || '一般'
+      case 'notify_new_task':
+        return 'FALSE'
+      default:
+        return ''
+    }
+  })
+  sheet.appendRow(row)
+  // affiliation isn't its own column — it's derived from project_ids (or,
+  // for admin roles with none, defaulted client-side), so nothing to store
+  // for it here; kept as a param for parity with the client-side call.
+  return { id: id }
 }
 
 // Deletes the member's row and clears assignee_id (or removes just their

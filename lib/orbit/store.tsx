@@ -21,9 +21,16 @@ import type {
   ParsedTask,
   ProgressEntry,
 } from './types'
-import { canSeeExecTasks } from './types'
+import { canSeeExecTasks, BASE_ROLE } from './types'
 import { MEMBERS, PROJECTS, SEED_TASKS, SEED_INPUTS } from './seed'
-import { fetchRemoteData, isRemoteConfigured, remoteApi, toCreatePayload } from './remote'
+import {
+  colorForId,
+  fetchRemoteData,
+  initialsForName,
+  isRemoteConfigured,
+  remoteApi,
+  toCreatePayload,
+} from './remote'
 import { daysSince, deadlineLevel } from './utils'
 
 type Mode = 'input' | 'output'
@@ -44,6 +51,11 @@ const DEFAULT_SKILL_OPTIONS = [
 const DEFAULT_CATEGORY_OPTIONS = [
   'デザイン', '渉外', 'イベント', '広報', 'ライティング', '企画', 'リサーチ', '開発', '物品調達',
 ]
+
+// Admin-defined permission levels above the fixed 一般 baseline (see
+// types.ts's BASE_ROLE/isAdminRole) — freely add/removable from Admin →
+// Tags, same pattern as skill/category option pools.
+const DEFAULT_ROLE_LEVELS = ['班長', '代表']
 
 function isArchived(t: Task): boolean {
   if (t.status !== 'done' || !t.completedDate) return false
@@ -80,6 +92,9 @@ interface OrbitContextValue extends OrbitState {
   removeSkillOption: (name: string) => void
   addCategoryOption: (name: string) => void
   removeCategoryOption: (name: string) => void
+  roleLevels: string[]
+  addRoleLevel: (name: string) => void
+  removeRoleLevel: (name: string) => void
   projectTemplates: Record<string, ProjectTemplateTask[]>
   projectTypes: string[]
   setProjectTemplateTasks: (type: string, tasks: ProjectTemplateTask[]) => void
@@ -103,6 +118,7 @@ interface OrbitContextValue extends OrbitState {
   updateJudgment: (memberId: string, judgment: string[]) => void
   approveTask: (id: string) => void
   addProject: (name: string, description: string, type?: string) => void
+  addMember: (name: string, email: string, affiliation: string, role: string) => void
   removeMember: (memberId: string) => void
   updateNotify: (memberId: string, notify: boolean) => void
   updateRole: (memberId: string, role: Role) => void
@@ -135,7 +151,7 @@ function loadState(): Partial<OrbitState> | null {
   }
 }
 
-function loadTagOptions(): { skills: string[]; categories: string[] } | null {
+function loadTagOptions(): { skills: string[]; categories: string[]; roleLevels?: string[] } | null {
   if (typeof window === 'undefined') return null
   try {
     const raw = window.localStorage.getItem(TAGS_STORAGE_KEY)
@@ -181,6 +197,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const [remoteError, setRemoteError] = useState<string | null>(null)
   const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS)
   const [categoryOptions, setCategoryOptions] = useState<string[]>(DEFAULT_CATEGORY_OPTIONS)
+  const [roleLevels, setRoleLevels] = useState<string[]>(DEFAULT_ROLE_LEVELS)
   const [projectTemplates, setProjectTemplates] = useState<Record<string, ProjectTemplateTask[]>>({})
   const [onboardedIds, setOnboardedIds] = useState<Set<string>>(new Set())
   const [skillCertifiedEvent, setSkillCertifiedEvent] = useState<{
@@ -221,6 +238,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       if (tags.skills?.length) setSkillOptions(uniq([...DEFAULT_SKILL_OPTIONS, ...tags.skills]))
       if (tags.categories?.length)
         setCategoryOptions(uniq([...DEFAULT_CATEGORY_OPTIONS, ...tags.categories]))
+      if (tags.roleLevels) setRoleLevels(uniq(tags.roleLevels))
     }
     setOnboardedIds(new Set(loadOnboardedIds()))
     setProjectTemplates(loadProjectTemplates())
@@ -254,6 +272,14 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     setCategoryOptions((prev) => uniq([...prev, ...seenCategories]))
   }, [tasks])
 
+  // same for role levels actually in use on Members (e.g. from the sheet),
+  // so a custom level set elsewhere still shows up in this browser's picker
+  useEffect(() => {
+    const seenRoles = uniq(members.map((m) => m.role).filter((r) => r !== BASE_ROLE))
+    if (seenRoles.length === 0) return
+    setRoleLevels((prev) => uniq([...prev, ...seenRoles]))
+  }, [members])
+
   // persist (local-only state: current user, input history, UI mode — the
   // task/member/project lists themselves are never the source of truth
   // once a remote DB is configured, so they're skipped from the cache then)
@@ -274,18 +300,18 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentUserId, tasks, members, projects, inputs, mode, hydrated])
 
-  // persist skill/category tag pools (device-local — see gas/README.md)
+  // persist skill/category/role-level option pools (device-local — see gas/README.md)
   useEffect(() => {
     if (!hydrated) return
     try {
       window.localStorage.setItem(
         TAGS_STORAGE_KEY,
-        JSON.stringify({ skills: skillOptions, categories: categoryOptions }),
+        JSON.stringify({ skills: skillOptions, categories: categoryOptions, roleLevels }),
       )
     } catch {
       /* ignore */
     }
-  }, [skillOptions, categoryOptions, hydrated])
+  }, [skillOptions, categoryOptions, roleLevels, hydrated])
 
   // persist project-type templates (device-local, same caveat as tags)
   useEffect(() => {
@@ -324,6 +350,27 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const removeCategoryOption = useCallback((name: string) => {
     setCategoryOptions((prev) => prev.filter((c) => c !== name))
   }, [])
+
+  const addRoleLevel = useCallback((name: string) => {
+    const v = name.trim()
+    if (!v || v === BASE_ROLE) return
+    setRoleLevels((prev) => (prev.includes(v) ? prev : [...prev, v]))
+  }, [])
+  // removing a level demotes anyone currently holding it back to 一般 —
+  // same "reassign, don't orphan" pattern as removeMember's task unassign
+  const removeRoleLevel = useCallback(
+    (name: string) => {
+      setRoleLevels((prev) => prev.filter((r) => r !== name))
+      setMembers((prev) =>
+        prev.map((m) => {
+          if (m.role !== name) return m
+          if (isRemoteConfigured) runRemote(remoteApi.updateRole(m.id, BASE_ROLE))
+          return { ...m, role: BASE_ROLE }
+        }),
+      )
+    },
+    [runRemote],
+  )
 
   const setProjectTemplateTasks = useCallback((type: string, tasksForType: ProjectTemplateTask[]) => {
     setProjectTemplates((prev) => ({ ...prev, [type]: tasksForType }))
@@ -603,6 +650,37 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [projectTemplates, currentUserId, reportRemoteError],
   )
 
+  const addMember = useCallback(
+    (name: string, email: string, affiliation: string, role: string) => {
+      const tempId = `m-${Math.random().toString(36).slice(2, 9)}`
+      const newMember: Member = {
+        id: tempId,
+        name,
+        affiliation,
+        role,
+        avatarColor: colorForId(tempId),
+        initials: initialsForName(name),
+        will: [],
+        judgment: [],
+        facts: [],
+        skills: [],
+        email: email || undefined,
+      }
+      setMembers((prev) => [...prev, newMember])
+
+      if (isRemoteConfigured) {
+        remoteApi
+          .addMember(name, email, affiliation, role)
+          .then(({ id }) => {
+            setMembers((prev) => prev.map((m) => (m.id === tempId ? { ...m, id } : m)))
+            setRemoteError(null)
+          })
+          .catch(reportRemoteError)
+      }
+    },
+    [reportRemoteError],
+  )
+
   const removeMember = useCallback(
     (memberId: string) => {
       setMembers((prev) => prev.filter((m) => m.id !== memberId))
@@ -840,6 +918,9 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     removeSkillOption,
     addCategoryOption,
     removeCategoryOption,
+    roleLevels,
+    addRoleLevel,
+    removeRoleLevel,
     projectTemplates,
     projectTypes,
     setProjectTemplateTasks,
@@ -862,6 +943,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateJudgment,
     approveTask,
     addProject,
+    addMember,
     removeMember,
     updateNotify,
     updateRole,

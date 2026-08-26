@@ -2,21 +2,22 @@ export type TaskStatus = 'todo' | 'progress' | 'review' | 'fix' | 'done'
 
 export type Difficulty = '新人歓迎' | '少し経験必要' | '経験者向け'
 
-// 一般 = regular member, 班長 = team lead (admin screens), 代表 = top-level rep
-// (admin screens + sees everything, default notification recipient)
-export type Role = '一般' | '班長' | '代表'
+// 一般 is the fixed, implicit baseline every member starts at — it carries
+// no admin access. Everything above it is an admin-defined permission
+// level (default 班長/代表, but admins can add/remove levels freely — see
+// store.tsx's roleLevels/addRoleLevel/removeRoleLevel), so Role is just a
+// free-form string rather than a fixed union.
+export type Role = string
+
+export const BASE_ROLE = '一般'
 
 export function isAdminRole(role: Role): boolean {
-  return role !== '一般'
-}
-
-export function isTopRole(role: Role): boolean {
-  return role === '代表'
+  return role !== BASE_ROLE
 }
 
 // visibility gate for 幹部 (leadership)-only tasks — see Task.visibility
 export function canSeeExecTasks(role: Role): boolean {
-  return role !== '一般'
+  return role !== BASE_ROLE
 }
 
 export type Priority = '高' | '中' | '低'

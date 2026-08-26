@@ -286,8 +286,14 @@ export function InputScreen() {
                     ),
                   )
                 }
+                onDelete={() => setParsed((prev) => prev.filter((x) => x.id !== p.id))}
               />
             ))}
+            {parsed.length === 0 && (
+              <div className="rounded-xl border border-dashed border-border bg-card py-10 text-center text-sm text-muted-foreground">
+                すべてのタスクを削除しました。
+              </div>
+            )}
           </div>
 
           <div className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">

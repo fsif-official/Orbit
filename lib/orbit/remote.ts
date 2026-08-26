@@ -15,7 +15,7 @@ import type {
   Task,
   TaskStatus,
 } from './types'
-import { STATUS_LABEL } from './types'
+import { STATUS_LABEL, isAdminRole } from './types'
 
 // NEXT_PUBLIC_ vars are inlined at build time by Next.js. They must be
 // referenced by their literal full name (not a dynamic key) to be inlined.
@@ -116,39 +116,42 @@ function splitTags(value: string | undefined): string[] {
 
 export const AVATAR_PALETTE = ['#6366f1', '#db2777', '#059669', '#d97706', '#0ea5e9', '#8b5cf6', '#e11d48', '#0891b2']
 
-function colorForId(id: string): string {
+export function colorForId(id: string): string {
   let hash = 0
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0
   return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length]
 }
 
-function initialsForName(name: string): string {
+export function initialsForName(name: string): string {
   const cleaned = name.replace(/^（例）/, '').trim()
   const parts = cleaned.split(/\s+/).filter(Boolean)
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
   return cleaned.slice(0, 2).toUpperCase()
 }
 
-// Sheet role values are already 一般/班長/代表; guard against blanks/typos.
+// Admins can define custom permission levels above the fixed 一般 baseline
+// (see store.tsx's roleLevels), so any non-blank sheet value is trusted
+// as-is — only a blank cell falls back to the baseline.
 function roleFromSheet(role: string): Role {
-  return role === '班長' || role === '代表' ? role : '一般'
+  return role && role.trim() ? role.trim() : '一般'
 }
 
 function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Project>): Member {
   const projectIds = splitTags(r.project_ids)
   const will = splitTags(r.will_tags)
   const judgment = splitTags(r.judgment_tags)
+  const role = roleFromSheet(r.role)
   const affiliation =
     projectIds.length > 0
       ? projectIds.map((pid) => projectsById.get(pid)?.name ?? pid).join(' / ')
-      : r.role === '代表'
+      : isAdminRole(role)
         ? '運営'
         : ''
   return {
     id: r.id,
     name: r.name,
     affiliation,
-    role: roleFromSheet(r.role),
+    role,
     avatarColor: r.avatar_color || colorForId(r.id),
     initials: r.avatar_initials || initialsForName(r.name),
     // Fact (past-performance) matching is explicitly out of scope for the
@@ -305,6 +308,8 @@ export const remoteApi = {
     postToGas('updateVisibility', { taskId, visibility }),
   updateAvatar: (memberId: string, avatarColor: string, initials: string) =>
     postToGas('updateAvatar', { memberId, avatarColor, initials }),
+  addMember: (name: string, email: string, affiliation: string, role: Role) =>
+    postToGas<{ id: string }>('addMember', { name, email, affiliation, role }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to
