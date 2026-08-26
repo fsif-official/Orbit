@@ -6,7 +6,7 @@ import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
 import { useToast } from '../toast'
 import { buildDemoParse, DEMO_INPUT } from '@/lib/orbit/seed'
-import type { ParsedTask, Task } from '@/lib/orbit/types'
+import type { ParsedTask, Department, Priority } from '@/lib/orbit/types'
 import { ParsedTaskCard } from './parsed-task-card'
 import { OrbitMark } from '../primitives'
 import { ArrowRight, Sparkles, TriangleAlert, Wand2 } from 'lucide-react'
@@ -14,7 +14,7 @@ import { ArrowRight, Sparkles, TriangleAlert, Wand2 } from 'lucide-react'
 type Phase = 'input' | 'parsing' | 'result'
 
 export function InputScreen() {
-  const { addTasks, setMode } = useOrbit()
+  const { addTasksFromInput, setMode } = useOrbit()
   const { go } = useNav()
   const toast = useToast()
 
@@ -52,21 +52,8 @@ export function InputScreen() {
   const handleRegister = () => {
     const approved = parsed.filter((p) => p.approved)
     if (approved.length === 0) return
-    const tasks: Task[] = approved.map((p) => ({
-      id: `t-${Math.random().toString(36).slice(2, 9)}`,
-      name: p.name,
-      description: '',
-      projectId: p.projectId,
-      assigneeId: null,
-      deadline: p.deadline,
-      category: p.category,
-      skills: p.skills,
-      difficulty: p.difficulty,
-      status: 'todo',
-      lastActivity: new Date().toISOString().slice(0, 10),
-    }))
-    addTasks(tasks)
-    toast(`${tasks.length}件のタスクを登録しました`)
+    addTasksFromInput(text, approved)
+    toast(`${approved.length}件のタスクを登録しました`)
     setPhase('input')
     setText('')
     setParsed([])
@@ -280,23 +267,39 @@ function parseText(text: string): ParsedTask[] {
   return lines.map((line) => {
     const name = line.length > 24 ? line.slice(0, 24) + '…' : line
     const skills: string[] = []
-    if (/デザイン|ポスター|canva/i.test(line)) skills.push('デザイン')
-    if (/メール|連絡|案内/.test(line)) skills.push('コミュニケーション')
-    if (/sns|投稿|告知/i.test(line)) skills.push('SNS')
-    if (/記事|執筆|ライティング/.test(line)) skills.push('ライティング')
+    let department: Department = '未分類'
+    if (/デザイン|ポスター|canva/i.test(line)) {
+      skills.push('デザイン')
+      department = 'デザイン'
+    }
+    if (/メール|連絡|案内/.test(line)) {
+      skills.push('コミュニケーション')
+      department = '渉外'
+    }
+    if (/sns|投稿|告知/i.test(line)) {
+      skills.push('SNS')
+      department = '広報'
+    }
+    if (/記事|執筆|ライティング/.test(line)) {
+      skills.push('ライティング')
+      department = '広報'
+    }
     if (skills.length === 0) skills.push('リサーチ')
     const deadlineMatch = line.match(/(\d{1,2})月(\d{1,2})日/)
     const deadline = deadlineMatch
       ? `2026-${deadlineMatch[1].padStart(2, '0')}-${deadlineMatch[2].padStart(2, '0')}`
       : null
+    const priority: Priority = deadline ? '高' : '中'
     return {
       id: `parsed-${Math.random().toString(36).slice(2, 9)}`,
       name,
       projectId: 'p-cosmo-base',
+      department,
       deadline,
       category: skills[0],
       skills,
       difficulty: '新人歓迎' as const,
+      priority,
       approved: true,
     }
   })

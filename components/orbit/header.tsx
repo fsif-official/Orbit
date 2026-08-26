@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 
 export function Header() {
-  const { currentUser, mode, setMode, logout } = useOrbit()
+  const { currentUser, setMode, logout } = useOrbit()
   const { screen, go } = useNav()
   const { theme, toggle } = useTheme()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -35,9 +35,6 @@ export function Header() {
   }, [])
 
   if (!currentUser) return null
-
-  const activeMode =
-    screen.name === 'input' ? 'input' : mode === 'input' && screen.name !== 'input' ? 'output' : mode
 
   const handleMode = (m: 'input' | 'output') => {
     setMode(m)
