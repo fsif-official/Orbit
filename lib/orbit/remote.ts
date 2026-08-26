@@ -19,6 +19,7 @@ import type {
   TaskComment,
   TaskDeliverable,
   TaskHistoryEntry,
+  TaskRetrospective,
   TaskSetTemplate,
   TaskStatus,
 } from './types'
@@ -189,6 +190,7 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
     displayName: r.display_name || undefined,
     unavailableDates: splitTags(r.unavailable_dates),
     reportsToId: r.reports_to_id || undefined,
+    mentorId: r.mentor_id || undefined,
   }
 }
 
@@ -244,6 +246,10 @@ function mapTaskRow(r: Record<string, string>): Task {
     deliverables: parseJsonArray<TaskDeliverable>(r.deliverables_json),
     history: parseJsonArray<TaskHistoryEntry>(r.history_json),
     comments: parseJsonArray<TaskComment>(r.comments_json),
+    estimatedHours: r.estimated_hours ? Number(r.estimated_hours) : undefined,
+    actualHours: r.actual_hours ? Number(r.actual_hours) : undefined,
+    retrospective: parseJsonObject<TaskRetrospective>(r.retrospective_json),
+    importance: (r.importance || undefined) as Task['importance'],
   }
 }
 
@@ -254,6 +260,19 @@ function parseJsonArray<T>(raw: string | undefined): T[] | undefined {
   try {
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? (parsed as T[]) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Same as parseJsonArray but for a single JSON object cell (retrospective_json)
+function parseJsonObject<T>(raw: string | undefined): T | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as T)
+      : undefined
   } catch {
     return undefined
   }
@@ -289,6 +308,8 @@ export interface RemoteSettings {
   rolePermissions: Record<string, AdminSection[]>
   taskSetTemplates: TaskSetTemplate[]
   recurringRules: RecurringTaskRule[]
+  // item 17: ポジション要件 — jobType (role level string) -> required skills
+  jobRequirements: Record<string, string[]>
 }
 
 // Reads the optional "Settings" sheet (key,value rows) — see
@@ -326,6 +347,13 @@ export async function fetchSettings(): Promise<RemoteSettings> {
   } catch {
     // malformed JSON in the sheet — fall back to empty rather than throwing
   }
+  let jobRequirements: Record<string, string[]> = {}
+  try {
+    const raw = byKey.get('job_requirements')
+    if (raw) jobRequirements = JSON.parse(raw)
+  } catch {
+    // malformed JSON in the sheet — fall back to empty rather than throwing
+  }
   return {
     skillOptions: splitTags(byKey.get('skill_options')),
     categoryOptions: splitTags(byKey.get('category_options')),
@@ -334,6 +362,7 @@ export async function fetchSettings(): Promise<RemoteSettings> {
     rolePermissions,
     taskSetTemplates,
     recurringRules,
+    jobRequirements,
   }
 }
 
@@ -357,6 +386,8 @@ export interface CreateTaskPayload {
   originalInputId?: string
   pendingApproval?: boolean
   visibility?: 'all' | '幹部'
+  estimatedHours?: number
+  importance?: string
 }
 
 async function postToGas<T = unknown>(action: string, payload: Record<string, unknown>): Promise<T> {
@@ -399,6 +430,8 @@ export const remoteApi = {
   updateRole: (memberId: string, role: Role) => postToGas('updateRole', { memberId, role }),
   updateReportsTo: (memberId: string, reportsToId: string | null) =>
     postToGas('updateReportsTo', { memberId, reportsToId }),
+  updateMentor: (memberId: string, mentorId: string | null) =>
+    postToGas('updateMentor', { memberId, mentorId }),
   updateDisplayName: (memberId: string, displayName: string) =>
     postToGas('updateDisplayName', { memberId, displayName }),
   updateUnavailableDates: (memberId: string, dates: string[]) =>
@@ -438,6 +471,12 @@ export const remoteApi = {
     postToGas('updateProjectOwner', { projectId, ownerId }),
   updateComments: (taskId: string, comments: TaskComment[]) =>
     postToGas('updateComments', { taskId, comments }),
+  updateEstimatedHours: (taskId: string, hours: number | null) =>
+    postToGas('updateEstimatedHours', { taskId, hours }),
+  updateActualHours: (taskId: string, hours: number | null) =>
+    postToGas('updateActualHours', { taskId, hours }),
+  updateRetrospective: (taskId: string, retrospective: TaskRetrospective | null) =>
+    postToGas('updateRetrospective', { taskId, retrospective }),
 }
 
 // re-exported for the parser fallback in input-screen.tsx, which needs to
@@ -460,5 +499,7 @@ export function toCreatePayload(tempId: string, p: ParsedTask, creatorId?: strin
     originalInputId,
     pendingApproval: true,
     visibility: p.visibility ?? 'all',
+    estimatedHours: p.estimatedHours,
+    importance: p.importance,
   }
 }

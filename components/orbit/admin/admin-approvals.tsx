@@ -36,9 +36,12 @@ export function AdminApprovals() {
           {pendingTasks.map((t) => {
             const creator = getMember(t.createdById ?? null)
             const approver = creator?.reportsToId ? getMember(creator.reportsToId) : undefined
+            // item 9: 承認ルートの拡張 — 重要/対外公開のタスクは報告先チェーン
+            // を飛ばして最上位管理者のみ承認できる（重要度に応じて経路を分岐）
+            const escalated = t.importance === '重要' || t.importance === '対外公開'
             // 組織体系(reports_to_id)で承認担当が決まっていれば本人のみ承認可能。
             // 未設定なら従来通り管理者なら誰でも承認できる。
-            const canApprove = isFullAdmin || !approver || approver.id === currentUser?.id
+            const canApprove = isFullAdmin || (!escalated && (!approver || approver.id === currentUser?.id))
             const similar = findSimilarTasks(t, visibleTasks)
             return (
               <div key={t.id} className="rounded-lg border border-border bg-card p-4">
@@ -50,6 +53,11 @@ export function AdminApprovals() {
                         期限：{formatDeadline(t.deadline)}
                       </span>
                       <DifficultyBadge difficulty={t.difficulty} />
+                      {escalated && (
+                        <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
+                          {t.importance}
+                        </span>
+                      )}
                     </div>
                     <h2 className="mt-1.5 text-sm font-semibold">{t.name}</h2>
                     {t.description && (
@@ -66,11 +74,18 @@ export function AdminApprovals() {
                           <Avatar member={creator} size={18} />
                           {creator.displayName || creator.name} が登録
                         </span>
-                        {approver && (
-                          <span className="flex items-center gap-1 text-accent-foreground">
+                        {escalated ? (
+                          <span className="flex items-center gap-1 text-destructive">
                             <ShieldCheck className="size-3.5" />
-                            承認担当：{approver.displayName || approver.name}
+                            {t.importance}のため最上位管理者の承認が必要です
                           </span>
+                        ) : (
+                          approver && (
+                            <span className="flex items-center gap-1 text-accent-foreground">
+                              <ShieldCheck className="size-3.5" />
+                              承認担当：{approver.displayName || approver.name}
+                            </span>
+                          )
                         )}
                       </div>
                     )}
@@ -84,6 +99,11 @@ export function AdminApprovals() {
                           {similar.map(({ task: s }) => (
                             <li key={s.id} className="text-xs text-muted-foreground">
                               ・{s.name}
+                              {s.status === 'done' && s.retrospective && (
+                                <span className="block pl-3 text-[11px] italic">
+                                  {s.retrospective.improve || s.retrospective.bad || s.retrospective.good}
+                                </span>
+                              )}
                             </li>
                           ))}
                         </ul>

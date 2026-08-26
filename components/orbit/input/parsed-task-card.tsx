@@ -2,12 +2,12 @@
 
 import { useState } from 'react'
 import type { ParsedTask } from '@/lib/orbit/types'
-import { DIFFICULTY_LABEL } from '@/lib/orbit/types'
+import { DIFFICULTY_LABEL, TASK_IMPORTANCE } from '@/lib/orbit/types'
 import { useOrbit } from '@/lib/orbit/store'
 import { Card, DifficultyBadge, Tag, Avatar } from '../primitives'
 import { cn } from '@/lib/utils'
-import { rankCandidates } from '@/lib/orbit/utils'
-import { Check, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { findSimilarTasks, rankCandidates } from '@/lib/orbit/utils'
+import { Check, Plus, Sparkles, TriangleAlert, Trash2 } from 'lucide-react'
 
 export function ParsedTaskCard({
   task,
@@ -57,6 +57,23 @@ export function ParsedTaskCard({
     .map((id) => members.find((m) => m.id === id))
     .filter(Boolean) as typeof members
   const assignableMembers = members.filter((m) => !task.assigneeIds.includes(m.id))
+
+  // item 4: 類似タスク検索の強化 — the same heuristic Admin Approvals uses,
+  // now shown here too so a duplicate can be caught before it's ever
+  // registered, not just at approval time
+  const similar = findSimilarTasks(task, tasks)
+
+  // item 5: 想定時間のおすすめ — average of past actual (or, failing that,
+  // estimated) hours for tasks in the same category
+  const suggestedHours = (() => {
+    const samples = tasks
+      .filter((t) => t.category === task.category)
+      .map((t) => t.actualHours ?? t.estimatedHours)
+      .filter((h): h is number => typeof h === 'number')
+    if (samples.length === 0) return null
+    const avg = samples.reduce((a, b) => a + b, 0) / samples.length
+    return Math.round(avg * 2) / 2
+  })()
 
   const addAssignee = (memberId: string) => {
     if (!task.assigneeIds.includes(memberId)) set('assigneeIds', [...task.assigneeIds, memberId])
@@ -133,6 +150,27 @@ export function ParsedTaskCard({
           <Trash2 className="size-4" />
         </button>
       </div>
+
+      {similar.length > 0 && (
+        <div className="mx-4 mt-3 rounded-md border border-warning/30 bg-warning-muted px-2.5 py-2">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-warning">
+            <TriangleAlert className="size-3.5 shrink-0" />
+            似たタスクが既にあるかもしれません
+          </div>
+          <ul className="mt-1 flex flex-col gap-1">
+            {similar.map(({ task: s }) => (
+              <li key={s.id} className="text-xs text-muted-foreground">
+                ・{s.name}
+                {s.status === 'done' && s.retrospective && (
+                  <span className="block pl-3 text-[11px] italic">
+                    {s.retrospective.improve || s.retrospective.bad || s.retrospective.good}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-3.5 sm:grid-cols-4">
         <Field label="プロジェクト">
@@ -254,6 +292,32 @@ export function ParsedTaskCard({
           </select>
         </Field>
 
+        <Field label="想定時間">
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={task.estimatedHours ?? ''}
+              onChange={(e) =>
+                set('estimatedHours', e.target.value ? Number(e.target.value) : undefined)
+              }
+              placeholder="時間"
+              className="w-16 rounded-md border border-transparent bg-transparent py-0.5 text-sm outline-none hover:border-border focus:border-border-strong"
+            />
+            {suggestedHours != null && task.estimatedHours == null && (
+              <button
+                type="button"
+                onClick={() => set('estimatedHours', suggestedHours)}
+                className="inline-flex items-center gap-0.5 rounded-md border border-primary/25 bg-primary/5 px-1.5 py-0.5 text-[11px] font-medium text-foreground hover:bg-primary/10"
+              >
+                <Sparkles className="size-3 text-primary" />
+                {suggestedHours}h
+              </button>
+            )}
+          </div>
+        </Field>
+
         <Field label="公開範囲">
           <select
             value={task.visibility ?? 'all'}
@@ -262,6 +326,20 @@ export function ParsedTaskCard({
           >
             <option value="all">全員</option>
             <option value="幹部">幹部限定</option>
+          </select>
+        </Field>
+
+        <Field label="重要度">
+          <select
+            value={task.importance ?? '一般'}
+            onChange={(e) => set('importance', e.target.value as ParsedTask['importance'])}
+            className="w-full cursor-pointer rounded-md border border-transparent bg-transparent py-0.5 text-sm outline-none hover:border-border focus:border-border-strong"
+          >
+            {TASK_IMPORTANCE.map((i) => (
+              <option key={i} value={i}>
+                {i}
+              </option>
+            ))}
           </select>
         </Field>
 

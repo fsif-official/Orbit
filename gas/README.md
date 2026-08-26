@@ -22,6 +22,7 @@ Apps Script Web App 経由で行います（アルファ版設計ドキュメン
 | email | 通知メールの送信先（新規タスク通知に使用）。個人ページの「アカウント設定」から本人が編集できます |
 | notify_new_task | TRUE ならこの人に新規タスク通知メールを送る |
 | reports_to_id | この人の「報告先」メンバーID（任意）。設定すると、この人が担当するタスクの日程変更・確認待ち通知はここで指定した人（例：事業部長）に届きます。未設定の場合は従来通り `notify_new_task` オプトイン者、いなければ代表全員に届きます |
+| mentor_id | この人の「メンター/サポート担当」メンバーID（任意）。個人ページの人材育成タブから管理者が設定でき、同タブに表示されます |
 | unavailable_dates | 本人が稼働できない日（カンマ区切り、YYYY-MM-DD）。個人ページのカレンダーから本人が編集します |
 | avatar_color | アイコンの背景色（16進カラーコード、任意）。個人ページから本人が変更できます。空欄の場合はIDから自動生成された色になります |
 | avatar_initials | アイコンに表示するイニシャル（任意、2文字まで）。空欄の場合は氏名から自動生成されます |
@@ -82,6 +83,10 @@ Admin → Membersの「メンバーを登録」フォームから新規メンバ
 | deliverables_json | 成果物リンクの配列（JSON文字列、例：`[{"id":"dl-1","label":"ポスターPDF","url":"https://drive.google.com/..."}]`）。タスク詳細と個人の実績ページに表示されます |
 | history_json | フィールド変更履歴の配列（JSON文字列）。担当者・期限・開始日・優先度・ステータス・確認者の変更を記録し、タスク詳細に表示されます |
 | comments_json | コメントの配列（JSON文字列）。タスク詳細のコメント欄に表示されます |
+| estimated_hours | 想定所要時間（時間、数値、任意）。タスク詳細から編集でき、INPUT画面では同カテゴリの過去実績の平均をおすすめ表示します。Admin → Assignments の「今週の工数」表示にも使われます |
+| actual_hours | 実績所要時間（時間、数値、任意）。タスク詳細から担当者/管理者が編集できます |
+| retrospective_json | 完了時の振り返り（JSON文字列、例：`{"good":"...","bad":"...","improve":"..."}`）。ステータスが完了のタスクでタスク詳細から編集でき、似たタスクの登録時（Admin承認画面・INPUT結果画面）に改善点として表示されます |
+| importance | タスクの重要度：一般 / 重要 / 対外公開（空欄は一般扱い）。INPUT画面で設定します。重要・対外公開のタスクは、登録者の報告先ではなく最上位の管理者（役職レベルの最上位）のみが承認できます |
 
 > `accepted_at` / `deliverable_url` / `feedback_comment` は現状のUIからは未使用です（次フェーズ）。列として残しておいて構いません。
 
@@ -197,13 +202,14 @@ localStorageにのみ保存され、他の人の画面には反映されませ�
 4. リポジトリの Secrets に `SETTINGS_CSV` としてこのURLを追加
 
 設定すると、要求スキル・カテゴリ・権限レベル・権限レベルごとの管理画面表示範囲・
-プロジェクトテンプレート・業務テンプレート・定期タスクルールの追加や削除がその場で
-Settingsシートに書き込まれ（`key` 列は `skill_options` / `category_options` /
-`role_levels` / `role_permissions` / `project_templates` / `task_set_templates` /
-`recurring_rules`、`value` 列はカンマ区切り文字列、`role_permissions` /
-`project_templates` / `task_set_templates` / `recurring_rules` のみJSON文字列）、
-次回以降は誰の画面を開いてもそこから読み込まれます。未設定の場合はこれまで通り
-ブラウザごとのlocalStorageにフォールバックし、何も壊れません。
+プロジェクトテンプレート・業務テンプレート・定期タスクルール・ポジション要件の追加や
+削除がその場でSettingsシートに書き込まれ（`key` 列は `skill_options` /
+`category_options` / `role_levels` / `role_permissions` / `project_templates` /
+`task_set_templates` / `recurring_rules` / `job_requirements`、`value` 列はカンマ区切り
+文字列、`role_permissions` / `project_templates` / `task_set_templates` /
+`recurring_rules` / `job_requirements` のみJSON文字列）、次回以降は誰の画面を開いても
+そこから読み込まれます。未設定の場合はこれまで通りブラウザごとのlocalStorageに
+フォールバックし、何も壊れません。
 
 ## 5. 動作確認
 

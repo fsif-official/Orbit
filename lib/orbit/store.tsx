@@ -19,6 +19,7 @@ import type {
   TaskComment,
   TaskDeliverable,
   TaskHistoryEntry,
+  TaskRetrospective,
   TaskSetTemplate,
   TaskSetTemplateItem,
   TaskStatus,
@@ -105,6 +106,12 @@ interface OrbitContextValue extends OrbitState {
   driveEnabled: boolean
   remoteStatus: RemoteStatus
   remoteError: string | null
+  // true once every configured remote source (spreadsheet + optional
+  // Settings sheet) has resolved or given up — see store.tsx's dataReady
+  dataReady: boolean
+  // manual re-fetch for the header's 情報更新 button — see refreshAll
+  refreshing: boolean
+  refreshAll: () => void
   skillOptions: string[]
   categoryOptions: string[]
   addSkillOption: (name: string) => void
@@ -131,6 +138,9 @@ interface OrbitContextValue extends OrbitState {
   removeTaskSetTemplate: (templateId: string) => void
   applyTaskSetTemplate: (templateId: string, projectId: string) => void
   recurringRules: RecurringTaskRule[]
+  // item 17: ポジション要件 — jobType (role level string) -> required skills
+  jobRequirements: Record<string, string[]>
+  setJobRequirements: (jobType: string, skills: string[]) => void
   addRecurringRule: (rule: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => void
   removeRecurringRule: (ruleId: string) => void
   toggleRecurringRule: (ruleId: string) => void
@@ -171,12 +181,16 @@ interface OrbitContextValue extends OrbitState {
   adminPendingTasks: Task[]
   updateRole: (memberId: string, role: Role) => void
   updateReportsTo: (memberId: string, reportsToId: string | null) => void
+  updateMentor: (memberId: string, mentorId: string | null) => void
   updateDisplayName: (memberId: string, displayName: string) => void
   toggleUnavailableDate: (memberId: string, date: string) => void
   updateSchedule: (id: string, startDate: string | null, deadline: string | null) => void
   updateDependsOn: (id: string, dependsOnIds: string[]) => void
   updateReviewer: (id: string, reviewerId: string | null) => void
   setBlocker: (id: string, note: string | null) => void
+  updateEstimatedHours: (id: string, hours: number | null) => void
+  updateActualHours: (id: string, hours: number | null) => void
+  updateRetrospective: (id: string, retrospective: TaskRetrospective | null) => void
   addDeliverable: (id: string, label: string, url: string) => void
   removeDeliverable: (id: string, deliverableId: string) => void
   addComment: (id: string, text: string) => void
@@ -187,6 +201,11 @@ interface OrbitContextValue extends OrbitState {
   getMember: (id: string | null) => Member | undefined
   getProject: (id: string) => Project | undefined
   getInput: (id: string | undefined) => TaskInput | undefined
+  // union of explicitly-assigned members (Project.memberIds) and whoever's
+  // actually assigned to one of the project's tasks — the same "who's on
+  // this project" definition admin-projects.tsx uses, so the workspace
+  // (project-view/project-detail) shows the same assignments as Admin does
+  getProjectMembers: (projectId: string) => Member[]
 }
 
 const OrbitContext = createContext<OrbitContextValue | null>(null)
@@ -198,6 +217,9 @@ const TEMPLATES_STORAGE_KEY = 'orbit-project-templates'
 const ROLE_PERMS_STORAGE_KEY = 'orbit-role-permissions'
 const TASK_SET_TEMPLATES_STORAGE_KEY = 'orbit-task-set-templates'
 const RECURRING_RULES_STORAGE_KEY = 'orbit-recurring-rules'
+// item 17: ポジション要件 — localStorage fallback for when the optional
+// Settings sheet isn't configured, same as the other option pools below
+const JOB_REQUIREMENTS_STORAGE_KEY = 'orbit-job-requirements'
 
 function loadState(): Partial<OrbitState> | null {
   if (typeof window === 'undefined') return null
@@ -269,20 +291,40 @@ function loadRecurringRules(): RecurringTaskRule[] {
   }
 }
 
+function loadJobRequirements(): Record<string, string[]> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(JOB_REQUIREMENTS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
 function uniq(list: string[]): string[] {
   return Array.from(new Set(list.map((s) => s.trim()).filter(Boolean)))
 }
 
 export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [tasks, setTasks] = useState<Task[]>(SEED_TASKS)
-  const [members, setMembers] = useState<Member[]>(MEMBERS)
-  const [projects, setProjects] = useState<Project[]>(PROJECTS)
+  // when a remote spreadsheet is configured, the local seed data is never
+  // actually correct (wrong ids, wrong org) — starting from it anyway just
+  // means every reload briefly shows the wrong members/tasks/projects (and
+  // can resolve currentUserId, a real remote id, to nobody) until the fetch
+  // below replaces it. Start empty instead and let the loading gates in
+  // orbit-app.tsx / admin-screen.tsx cover the wait.
+  const [tasks, setTasks] = useState<Task[]>(isRemoteConfigured ? [] : SEED_TASKS)
+  const [members, setMembers] = useState<Member[]>(isRemoteConfigured ? [] : MEMBERS)
+  const [projects, setProjects] = useState<Project[]>(isRemoteConfigured ? [] : PROJECTS)
   const [inputs, setInputs] = useState<TaskInput[]>(SEED_INPUTS)
   const [mode, setModeState] = useState<Mode>('output')
   const [hydrated, setHydrated] = useState(false)
   const [remoteStatus, setRemoteStatus] = useState<RemoteStatus>('idle')
   const [remoteError, setRemoteError] = useState<string | null>(null)
+  // mirrors remoteStatus but for the separate, optional Settings-sheet
+  // fetch (role levels/permissions/pools) — true immediately when that
+  // sheet isn't configured, so dataReady below doesn't wait on it forever
+  const [settingsReady, setSettingsReady] = useState(!isSettingsConfigured)
   const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS)
   const [categoryOptions, setCategoryOptions] = useState<string[]>(DEFAULT_CATEGORY_OPTIONS)
   const [roleLevels, setRoleLevels] = useState<string[]>(DEFAULT_ROLE_LEVELS)
@@ -290,6 +332,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const [projectTemplates, setProjectTemplates] = useState<Record<string, ProjectTemplateTask[]>>({})
   const [taskSetTemplates, setTaskSetTemplates] = useState<TaskSetTemplate[]>([])
   const [recurringRules, setRecurringRules] = useState<RecurringTaskRule[]>([])
+  // item 17: ポジション要件 — jobType (role level string) -> required skills
+  const [jobRequirements, setJobRequirementsState] = useState<Record<string, string[]>>({})
   const [onboardedIds, setOnboardedIds] = useState<Set<string>>(new Set())
   const [skillCertifiedEvent, setSkillCertifiedEvent] = useState<{
     memberName: string
@@ -336,6 +380,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       setRolePermissionsState(loadRolePermissions())
       setTaskSetTemplates(loadTaskSetTemplates())
       setRecurringRules(loadRecurringRules())
+      setJobRequirementsState(loadJobRequirements())
     }
     setOnboardedIds(new Set(loadOnboardedIds()))
     setHydrated(true)
@@ -375,9 +420,55 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         setRolePermissionsState(s.rolePermissions)
         setTaskSetTemplates(s.taskSetTemplates)
         setRecurringRules(s.recurringRules)
+        setJobRequirementsState(s.jobRequirements)
+        setRemoteError(null)
+        setSettingsReady(true)
+      })
+      .catch((err) => {
+        reportRemoteError(err)
+        // an error still means "stop waiting" — fall back to defaults
+        // rather than blocking dataReady forever
+        setSettingsReady(true)
+      })
+  }, [reportRemoteError])
+
+  // manual refresh for the header's 情報更新 button. Deliberately doesn't
+  // touch remoteStatus/settingsReady (those flipping to non-ready is what
+  // gates the Router/AdminScreen loading screens) — a refresh the user asks
+  // for while already looking at data should update in place, not bounce
+  // them to a loading screen or off the page they're on.
+  const [refreshing, setRefreshing] = useState(false)
+  const refreshAll = useCallback(() => {
+    if (!isRemoteConfigured && !isSettingsConfigured) return
+    setRefreshing(true)
+    Promise.all([
+      isRemoteConfigured ? fetchRemoteData() : null,
+      isSettingsConfigured ? fetchSettings() : null,
+    ])
+      .then(([remote, settings]) => {
+        if (remote) {
+          setMembers(remote.members)
+          setProjects(remote.projects)
+          setTasks(remote.tasks)
+        }
+        if (settings) {
+          setSkillOptions(settings.skillOptions.length ? uniq(settings.skillOptions) : DEFAULT_SKILL_OPTIONS)
+          setCategoryOptions(
+            settings.categoryOptions.length
+              ? uniq(settings.categoryOptions)
+              : DEFAULT_CATEGORY_OPTIONS,
+          )
+          setRoleLevels(settings.roleLevels.length ? uniq(settings.roleLevels) : DEFAULT_ROLE_LEVELS)
+          setProjectTemplates(settings.projectTemplates)
+          setRolePermissionsState(settings.rolePermissions)
+          setTaskSetTemplates(settings.taskSetTemplates)
+          setRecurringRules(settings.recurringRules)
+          setJobRequirementsState(settings.jobRequirements)
+        }
         setRemoteError(null)
       })
       .catch(reportRemoteError)
+      .finally(() => setRefreshing(false))
   }, [reportRemoteError])
 
   // 定期タスク generation check (item 2) — there's no server-side cron in
@@ -540,6 +631,29 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
   }, [recurringRules, hydrated])
+
+  useEffect(() => {
+    if (!hydrated || isSettingsConfigured) return
+    try {
+      window.localStorage.setItem(JOB_REQUIREMENTS_STORAGE_KEY, JSON.stringify(jobRequirements))
+    } catch {
+      /* ignore */
+    }
+  }, [jobRequirements, hydrated])
+
+  // item 17: ポジション要件 — synced via the optional Settings sheet
+  // (job_requirements key), same pattern as role_permissions/project_templates
+  const setJobRequirements = useCallback(
+    (jobType: string, skills: string[]) => {
+      setJobRequirementsState((prev) => {
+        const next = { ...prev, [jobType]: skills }
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('job_requirements', JSON.stringify(next)))
+        return next
+      })
+    },
+    [runRemote],
+  )
 
   const login = useCallback((userId: string) => {
     setCurrentUserId(userId)
@@ -857,6 +971,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         progressHistory: [],
         pendingApproval: true,
         visibility: p.visibility ?? 'all',
+        estimatedHours: p.estimatedHours,
+        importance: p.importance,
       }))
 
       const input: TaskInput = {
@@ -1288,6 +1404,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  // item 14: メンター/サポート担当の設定
+  const updateMentor = useCallback(
+    (memberId: string, mentorId: string | null) => {
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, mentorId: mentorId ?? undefined } : m)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateMentor(memberId, mentorId))
+    },
+    [runRemote],
+  )
+
   const updateDisplayName = useCallback(
     (memberId: string, displayName: string) => {
       const trimmed = displayName.trim()
@@ -1361,6 +1488,38 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         prev.map((t) => (t.id === id ? { ...t, blocker: trimmed ? { note: trimmed, since: since! } : undefined } : t)),
       )
       if (isRemoteConfigured) runRemote(remoteApi.setBlocker(id, trimmed, since))
+    },
+    [runRemote],
+  )
+
+  // 想定/実績の所要時間（item 5） — powers the Assignments page's
+  // per-member 今週の工数 indicator and the INPUT screen's estimate suggestion
+  const updateEstimatedHours = useCallback(
+    (id: string, hours: number | null) => {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, estimatedHours: hours ?? undefined } : t)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateEstimatedHours(id, hours))
+    },
+    [runRemote],
+  )
+  const updateActualHours = useCallback(
+    (id: string, hours: number | null) => {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, actualHours: hours ?? undefined } : t)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateActualHours(id, hours))
+    },
+    [runRemote],
+  )
+
+  // 完了時の振り返り（item 3） — pass null to clear
+  const updateRetrospective = useCallback(
+    (id: string, retrospective: TaskRetrospective | null) => {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, retrospective: retrospective ?? undefined } : t)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateRetrospective(id, retrospective))
     },
     [runRemote],
   )
@@ -1540,6 +1699,20 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [tasks],
   )
 
+  const getProjectMembers = useCallback(
+    (projectId: string) => {
+      const project = projects.find((p) => p.id === projectId)
+      const ids = Array.from(
+        new Set([
+          ...(project?.memberIds ?? []),
+          ...visibleTasks.filter((t) => t.projectId === projectId).flatMap((t) => t.assigneeIds),
+        ]),
+      )
+      return ids.map((id) => members.find((m) => m.id === id)).filter(Boolean) as Member[]
+    },
+    [projects, visibleTasks, members],
+  )
+
   // A member holding the highest-ranked configured role level (see
   // roleLevels — default top level is 代表) manages everything, matching
   // today's behavior. Any other admin-level role is scoped to their own
@@ -1611,6 +1784,30 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
             taskId: t.id,
           })
         })
+      // item 10: SLA/放置アラート — 確認待ちが3日、進行中タスクの更新が
+      // 7日ないと通知。lastActivity は既存の「放置検知」用フィールド
+      // (types.ts) をそのまま流用
+      adminTasks.forEach((t) => {
+        const idle = daysSince(t.lastActivity)
+        if (idle === null) return
+        if (t.status === 'review' && idle >= 3) {
+          items.push({
+            id: `stale-review-${t.id}`,
+            kind: 'stale',
+            title: `確認待ちが${idle}日経過: ${t.name}`,
+            detail: '対応が滞っていないか確認してください',
+            taskId: t.id,
+          })
+        } else if (t.status !== 'done' && t.status !== 'review' && idle >= 7) {
+          items.push({
+            id: `stale-progress-${t.id}`,
+            kind: 'stale',
+            title: `${idle}日間更新なし: ${t.name}`,
+            detail: '進捗を確認してください',
+            taskId: t.id,
+          })
+        }
+      })
     }
     visibleTasks
       .filter((t) => t.assigneeIds.includes(currentUser.id) && t.status !== 'done')
@@ -1644,6 +1841,15 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     !onboardedIds.has(currentUser.id)
   )
 
+  // true once every configured remote source has either resolved or given
+  // up (error). Consumers (orbit-app.tsx's Router, admin-screen.tsx) use
+  // this to avoid computing permissions/redirects against the transient
+  // pre-fetch state, where members/roleLevels/rolePermissions can be empty
+  // or still at their defaults.
+  const dataReady =
+    (!isRemoteConfigured || remoteStatus === 'ready' || remoteStatus === 'error') &&
+    settingsReady
+
   const value: OrbitContextValue = {
     currentUserId,
     tasks,
@@ -1659,6 +1865,9 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     driveEnabled: isDriveConfigured,
     remoteStatus,
     remoteError,
+    dataReady,
+    refreshing,
+    refreshAll,
     skillOptions,
     categoryOptions,
     addSkillOption,
@@ -1681,6 +1890,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     removeTaskSetTemplate,
     applyTaskSetTemplate,
     recurringRules,
+    jobRequirements,
+    setJobRequirements,
     addRecurringRule,
     removeRecurringRule,
     toggleRecurringRule,
@@ -1716,12 +1927,16 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     adminPendingTasks,
     updateRole,
     updateReportsTo,
+    updateMentor,
     updateDisplayName,
     toggleUnavailableDate,
     updateSchedule,
     updateDependsOn,
     updateReviewer,
     setBlocker,
+    updateEstimatedHours,
+    updateActualHours,
+    updateRetrospective,
     addDeliverable,
     removeDeliverable,
     addComment,
@@ -1732,6 +1947,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     getMember,
     getProject,
     getInput,
+    getProjectMembers,
   }
 
   return <OrbitContext.Provider value={value}>{children}</OrbitContext.Provider>

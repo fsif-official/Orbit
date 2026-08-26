@@ -509,25 +509,22 @@ function parseText(text: string): ParsedTask[] {
 
   return lines.map((line) => {
     const name = line.length > 24 ? line.slice(0, 24) + '…' : line
-    const skills: string[] = []
+    // left for the user to pick from the おすすめ chips in ParsedTaskCard —
+    // auto-guessing a required skill from keywords was more often wrong
+    // than right, so this only infers the department, not skills
     let department: Department = '未分類'
     if (/デザイン|ポスター|canva/i.test(line)) {
-      skills.push('デザイン')
       department = 'デザイン'
     }
     if (/メール|連絡|案内/.test(line)) {
-      skills.push('コミュニケーション')
       department = '渉外'
     }
     if (/sns|投稿|告知/i.test(line)) {
-      skills.push('SNS')
       department = '広報'
     }
     if (/記事|執筆|ライティング/.test(line)) {
-      skills.push('ライティング')
       department = '広報'
     }
-    if (skills.length === 0) skills.push('リサーチ')
     const deadlineMatch = line.match(/(\d{1,2})月(\d{1,2})日/)
     const deadline = deadlineMatch
       ? `2026-${deadlineMatch[1].padStart(2, '0')}-${deadlineMatch[2].padStart(2, '0')}`
@@ -542,7 +539,7 @@ function parseText(text: string): ParsedTask[] {
       // left for the user to pick from the おすすめ chips / dropdown in
       // ParsedTaskCard — a skill name isn't a meaningful category guess
       category: '未分類',
-      skills,
+      skills: [],
       difficulty: '新人歓迎' as const,
       priority,
       assigneeIds: [],

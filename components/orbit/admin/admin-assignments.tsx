@@ -56,7 +56,16 @@ export function AdminAssignments() {
           </div>
 
           {/* Detail + candidates */}
-          {selected && <MatchPanel key={selected.id} task={selected} members={members} assignTask={assignTask} projectName={getProject(selected.projectId)?.name ?? ''} />}
+          {selected && (
+            <MatchPanel
+              key={selected.id}
+              task={selected}
+              members={members}
+              allTasks={tasks}
+              assignTask={assignTask}
+              projectName={getProject(selected.projectId)?.name ?? ''}
+            />
+          )}
         </div>
       )}
     </div>
@@ -66,11 +75,13 @@ export function AdminAssignments() {
 function MatchPanel({
   task,
   members,
+  allTasks,
   assignTask,
   projectName,
 }: {
   task: Task
   members: Member[]
+  allTasks: Task[]
   assignTask: (id: string, memberIds: string[]) => void
   projectName: string
 }) {
@@ -126,7 +137,14 @@ function MatchPanel({
           </div>
         )}
         {ranked.map(({ member, matches }) => (
-          <CandidateCard key={member.id} member={member} matches={matches} onAssign={() => handleAssign(member)} recommended />
+          <CandidateCard
+            key={member.id}
+            member={member}
+            matches={matches}
+            onAssign={() => handleAssign(member)}
+            recommended
+            weeklyHours={weeklyWorkload(member.id, allTasks)}
+          />
         ))}
       </div>
 
@@ -148,6 +166,7 @@ function MatchPanel({
                   member={member}
                   matches={matchSkills(task, member)}
                   onAssign={() => handleAssign(member)}
+                  weeklyHours={weeklyWorkload(member.id, allTasks)}
                 />
               ))}
             </div>
@@ -158,16 +177,46 @@ function MatchPanel({
   )
 }
 
+// item 6: 工数・キャパシティ表示 — sum of estimatedHours for a member's
+// active (non-done) tasks due within the current calendar week (Mon-Sun),
+// so an admin can see who's already loaded up before assigning more
+function currentWeekRange(): [string, string] {
+  const now = new Date()
+  const diffToMonday = (now.getDay() + 6) % 7
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - diffToMonday)
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  const fmt = (d: Date) => d.toISOString().slice(0, 10)
+  return [fmt(monday), fmt(sunday)]
+}
+
+function weeklyWorkload(memberId: string, tasks: Task[]): number {
+  const [start, end] = currentWeekRange()
+  return tasks
+    .filter(
+      (t) =>
+        t.status !== 'done' &&
+        t.assigneeIds.includes(memberId) &&
+        t.deadline &&
+        t.deadline >= start &&
+        t.deadline <= end,
+    )
+    .reduce((sum, t) => sum + (t.estimatedHours ?? 0), 0)
+}
+
 function CandidateCard({
   member,
   matches,
   onAssign,
   recommended,
+  weeklyHours,
 }: {
   member: Member
   matches: string[]
   onAssign: () => void
   recommended?: boolean
+  weeklyHours?: number
 }) {
   return (
     <div
@@ -182,6 +231,14 @@ function CandidateCard({
             <span className="text-sm font-medium">{member.displayName || member.name}</span>
             {member.role === '一般' && (
               <span className="text-xs text-muted-foreground">{member.affiliation}</span>
+            )}
+            {!!weeklyHours && (
+              <span
+                className="rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                title="今週が期限の、未完了タスクの想定時間合計"
+              >
+                今週の工数 {weeklyHours}h
+              </span>
             )}
           </div>
 

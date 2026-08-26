@@ -47,6 +47,12 @@ export type Priority = '高' | '中' | '低'
 
 export const PRIORITIES: Priority[] = ['高', '中', '低']
 
+// item 9: 承認ルートの拡張 — 重要/対外公開のタスクは最上位管理者のみが
+// 承認できる（Task.importance / admin-approvals.tsx）
+export type TaskImportance = '一般' | '重要' | '対外公開'
+
+export const TASK_IMPORTANCE: TaskImportance[] = ['一般', '重要', '対外公開']
+
 export const DEPARTMENTS = [
   '運営',
   '広報',
@@ -111,6 +117,9 @@ export interface Member {
   // A 代表-equivalent (the highest-ranked role level) always sees/manages
   // everything regardless of this list.
   projectIds?: string[]
+  // item 14: メンター/サポート担当の設定 — another member assigned to help
+  // this one grow. Set by an admin from the person page's 人材育成 tab.
+  mentorId?: string
 
   // ---- talent-management fields (reserved, not yet wired up) -------------
   // Data shape for the タレントマネジメント epic requested alongside this
@@ -331,6 +340,10 @@ export interface Task {
   dependsOnIds?: string[]
   // '幹部' restricts visibility to 班長/代表 (see canSeeExecTasks); undefined/'all' = everyone
   visibility?: 'all' | '幹部'
+  // タスクの重要度（item 9: 承認ルートの拡張）— 重要/対外公開のタスクは
+  // 登録者の報告先ではなく、最上位の管理者（isFullAdmin）のみ承認できる。
+  // 未設定/一般は既存どおり報告先チェーンで承認できる。
+  importance?: TaskImportance
   // distinct from assigneeIds — who signs off on this task (pairs with the
   // 'review' status). Unset = no particular reviewer, any admin can review.
   reviewerId?: string
@@ -349,6 +362,22 @@ export interface Task {
   // discussion thread — distinct from progressHistory (which is a status
   // update log, not a conversation)
   comments?: TaskComment[]
+  // 想定/実績の所要時間（時間単位）— estimatedHours is set at INPUT time
+  // (see parsed-task-card.tsx's category-average suggestion) or edited
+  // later; actualHours is filled in around completion. Together these
+  // power the Assignments page's per-member 今週の工数 indicator.
+  estimatedHours?: number
+  actualHours?: number
+  // 完了時の振り返り — shown once status is 'done', and surfaced on any
+  // future task the similar-task heuristic (findSimilarTasks) flags as
+  // related, so lessons carry over instead of being re-learned
+  retrospective?: TaskRetrospective
+}
+
+export interface TaskRetrospective {
+  good: string
+  bad: string
+  improve: string
 }
 
 export interface TaskDeliverable {
@@ -389,6 +418,10 @@ export interface ParsedTask {
   assigneeIds: string[]
   approved: boolean
   visibility?: 'all' | '幹部'
+  // suggested/entered estimate at registration time — see Task.estimatedHours
+  estimatedHours?: number
+  // see Task.importance
+  importance?: TaskImportance
 }
 
 export const STATUS_ORDER: TaskStatus[] = [
@@ -436,7 +469,9 @@ export const PRIORITY_LINE: Record<Priority, string> = {
 // state (see store.tsx's `notifications`), not persisted.
 export interface NotificationItem {
   id: string
-  kind: 'approval' | 'review' | 'deadline'
+  // 'stale' = item 10 (SLA/放置アラート): 確認待ちが3日以上、または
+  // 進行中タスクの更新が7日以上ない場合に表示
+  kind: 'approval' | 'review' | 'deadline' | 'stale'
   title: string
   detail: string
   taskId: string

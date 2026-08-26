@@ -5,7 +5,7 @@ import { Avatar } from '@/components/orbit/primitives'
 import { useNav } from '@/lib/orbit/nav'
 
 export function ProjectView() {
-  const { projects, visibleTasks: tasks, members } = useOrbit()
+  const { projects, visibleTasks: tasks, getProjectMembers } = useOrbit()
   const { go } = useNav()
 
   return (
@@ -15,7 +15,7 @@ export function ProjectView() {
         const done = pt.filter((t) => t.status === 'done').length
         const waiting = pt.filter((t) => t.status === 'review').length
         const completion = pt.length ? Math.round((done / pt.length) * 100) : 0
-        const memberIds = Array.from(new Set(pt.flatMap((t) => t.assigneeIds)))
+        const pm = getProjectMembers(p.id)
         return (
           <button
             key={p.id}
@@ -27,7 +27,7 @@ export function ProjectView() {
               <p className="text-sm font-semibold text-foreground">{p.name}</p>
             </div>
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              <span>メンバー {memberIds.length}</span>
+              <span>メンバー {pm.length}</span>
               <span>タスク {pt.length}</span>
               <span className={waiting > 0 ? 'text-warning' : ''}>確認待ち {waiting}</span>
             </div>
@@ -41,15 +41,11 @@ export function ProjectView() {
               </div>
             </div>
             <div className="flex -space-x-1.5">
-              {memberIds.slice(0, 5).map((id) => {
-                const m = members.find((x) => x.id === id)
-                if (!m) return null
-                return (
-                  <span key={id} className="rounded-full ring-2 ring-card">
-                    <Avatar member={m} size={24} />
-                  </span>
-                )
-              })}
+              {pm.slice(0, 5).map((m) => (
+                <span key={m.id} className="rounded-full ring-2 ring-card">
+                  <Avatar member={m} size={24} />
+                </span>
+              ))}
             </div>
           </button>
         )
