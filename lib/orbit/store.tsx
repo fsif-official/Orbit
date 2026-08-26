@@ -108,6 +108,9 @@ interface OrbitContextValue extends OrbitState {
   // true once every configured remote source (spreadsheet + optional
   // Settings sheet) has resolved or given up — see store.tsx's dataReady
   dataReady: boolean
+  // manual re-fetch for the header's 情報更新 button — see refreshAll
+  refreshing: boolean
+  refreshAll: () => void
   skillOptions: string[]
   categoryOptions: string[]
   addSkillOption: (name: string) => void
@@ -402,6 +405,44 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         // rather than blocking dataReady forever
         setSettingsReady(true)
       })
+  }, [reportRemoteError])
+
+  // manual refresh for the header's 情報更新 button. Deliberately doesn't
+  // touch remoteStatus/settingsReady (those flipping to non-ready is what
+  // gates the Router/AdminScreen loading screens) — a refresh the user asks
+  // for while already looking at data should update in place, not bounce
+  // them to a loading screen or off the page they're on.
+  const [refreshing, setRefreshing] = useState(false)
+  const refreshAll = useCallback(() => {
+    if (!isRemoteConfigured && !isSettingsConfigured) return
+    setRefreshing(true)
+    Promise.all([
+      isRemoteConfigured ? fetchRemoteData() : null,
+      isSettingsConfigured ? fetchSettings() : null,
+    ])
+      .then(([remote, settings]) => {
+        if (remote) {
+          setMembers(remote.members)
+          setProjects(remote.projects)
+          setTasks(remote.tasks)
+        }
+        if (settings) {
+          setSkillOptions(settings.skillOptions.length ? uniq(settings.skillOptions) : DEFAULT_SKILL_OPTIONS)
+          setCategoryOptions(
+            settings.categoryOptions.length
+              ? uniq(settings.categoryOptions)
+              : DEFAULT_CATEGORY_OPTIONS,
+          )
+          setRoleLevels(settings.roleLevels.length ? uniq(settings.roleLevels) : DEFAULT_ROLE_LEVELS)
+          setProjectTemplates(settings.projectTemplates)
+          setRolePermissionsState(settings.rolePermissions)
+          setTaskSetTemplates(settings.taskSetTemplates)
+          setRecurringRules(settings.recurringRules)
+        }
+        setRemoteError(null)
+      })
+      .catch(reportRemoteError)
+      .finally(() => setRefreshing(false))
   }, [reportRemoteError])
 
   // 定期タスク generation check (item 2) — there's no server-side cron in
@@ -1707,6 +1748,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     remoteStatus,
     remoteError,
     dataReady,
+    refreshing,
+    refreshAll,
     skillOptions,
     categoryOptions,
     addSkillOption,

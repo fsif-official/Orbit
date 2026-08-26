@@ -17,13 +17,15 @@ import {
   ClipboardCheck,
   LogOut,
   Moon,
+  RefreshCw,
   ShieldCheck,
   Sun,
   User,
 } from 'lucide-react'
 
 export function Header() {
-  const { currentUser, setMode, logout, notifications } = useOrbit()
+  const { currentUser, setMode, logout, notifications, remoteEnabled, refreshing, refreshAll } =
+    useOrbit()
   const { screen, go, goBack, canGoBack } = useNav()
   const { theme, toggle } = useTheme()
   const { openTask } = useTaskDrawer()
@@ -72,6 +74,18 @@ export function Header() {
               title="戻る"
             >
               <ArrowLeft className="size-[18px]" />
+            </button>
+          )}
+          {remoteEnabled && (
+            <button
+              type="button"
+              onClick={refreshAll}
+              disabled={refreshing}
+              className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
+              aria-label="情報を更新"
+              title="情報を更新"
+            >
+              <RefreshCw className={cn('size-[18px]', refreshing && 'animate-spin')} />
             </button>
           )}
           <button
