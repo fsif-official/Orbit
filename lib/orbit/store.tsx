@@ -71,7 +71,7 @@ const DEFAULT_CATEGORY_OPTIONS = [
 // Admin-defined permission levels above the fixed 一般 baseline (see
 // types.ts's BASE_ROLE/isAdminRole) — freely add/removable from Admin →
 // Tags, same pattern as skill/category option pools.
-const DEFAULT_ROLE_LEVELS = ['班長', '代表']
+const DEFAULT_ROLE_LEVELS = ['班長', '事業責任者', '代表']
 
 function isArchived(t: Task): boolean {
   if (t.status !== 'done' || !t.completedDate) return false
