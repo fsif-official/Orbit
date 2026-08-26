@@ -8,15 +8,20 @@ import { STATUS_LABEL } from '@/lib/orbit/types'
 import { CircleAlert, Clock, UserX, Activity } from 'lucide-react'
 
 export function AdminDashboard() {
-  const { tasks, getProject } = useOrbit()
+  const { tasks, getProject, setMode } = useOrbit()
   const { go } = useNav()
+
+  const openInOutput = () => {
+    setMode('output')
+    go({ name: 'output' })
+  }
 
   const inProgress = tasks.filter((t) => t.status === 'progress')
   const waiting = tasks.filter((t) => t.status === 'review')
   const overdue = tasks.filter((t) => isOverdue(t))
   const unassigned = tasks.filter((t) => !t.assigneeId && t.status !== 'done')
   const stale = tasks.filter((t) => {
-    const d = daysSince(t.updatedAt)
+    const d = daysSince(t.lastActivity)
     return t.status !== 'done' && d !== null && d >= 5
   })
 
@@ -61,10 +66,10 @@ export function AdminDashboard() {
             icon={<Clock className="size-4 text-[var(--status-review-fg)]" />}
             tasks={waiting}
             renderMeta={(t) => {
-              const d = daysSince(t.updatedAt)
+              const d = daysSince(t.lastActivity)
               return d && d > 0 ? `${d}日前から確認待ち` : '確認待ち'
             }}
-            onOpen={(id) => go({ name: 'task', id })}
+            onOpen={openInOutput}
             getProject={getProject}
           />
           <AttentionGroup
@@ -72,7 +77,7 @@ export function AdminDashboard() {
             icon={<CircleAlert className="size-4 text-destructive" />}
             tasks={overdue}
             renderMeta={(t) => `期限：${formatDeadline(t.deadline)}`}
-            onOpen={(id) => go({ name: 'task', id })}
+            onOpen={openInOutput}
             getProject={getProject}
           />
           <AttentionGroup
@@ -87,8 +92,8 @@ export function AdminDashboard() {
             title="長期間進捗なし"
             icon={<Activity className="size-4 text-muted-foreground" />}
             tasks={stale}
-            renderMeta={(t) => `${daysSince(t.updatedAt)}日間更新なし`}
-            onOpen={(id) => go({ name: 'task', id })}
+            renderMeta={(t) => `${daysSince(t.lastActivity)}日間更新なし`}
+            onOpen={openInOutput}
             getProject={getProject}
           />
         </div>
