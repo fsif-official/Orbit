@@ -13,7 +13,8 @@ import { ArrowLeft, Plus, Target, Sparkles, Activity, X } from 'lucide-react'
 type Tab = 'overview' | 'calendar'
 
 export function PersonDetail({ id }: { id: string }) {
-  const { getMember, tasks, currentUser, updateWill, updateJudgment, getProject } = useOrbit()
+  const { getMember, visibleTasks: tasks, currentUser, updateWill, updateJudgment, getProject } =
+    useOrbit()
   const { go } = useNav()
   const [tab, setTab] = useState<Tab>('overview')
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)

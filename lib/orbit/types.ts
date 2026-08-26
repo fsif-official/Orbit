@@ -48,6 +48,10 @@ export interface Member {
   judgment: string[]
   facts: { label: string; count: number }[]
   skills: string[]
+  email?: string
+  // whether this member should receive an email when a new task is
+  // registered and needs approval — see store.tsx's notifyRecipients
+  notify?: boolean
 }
 
 export interface Project {
@@ -79,6 +83,9 @@ export interface Task {
   // progress tracking
   progress?: string // latest progress snapshot
   progressHistory: ProgressEntry[]
+  // tasks created from an INPUT submission start out awaiting an admin's
+  // approval, and are hidden from the normal workspace views until then
+  pendingApproval?: boolean
 }
 
 // Result of natural-language parsing, before approval

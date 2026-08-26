@@ -14,7 +14,7 @@ import { ArrowLeft } from 'lucide-react'
 type Tab = 'overview' | 'workflow' | 'calendar'
 
 export function ProjectDetail({ id }: { id: string }) {
-  const { getProject, tasks, members } = useOrbit()
+  const { getProject, visibleTasks: tasks, members } = useOrbit()
   const { go } = useNav()
   const [tab, setTab] = useState<Tab>('overview')
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)

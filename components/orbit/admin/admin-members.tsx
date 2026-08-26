@@ -1,8 +1,13 @@
 'use client'
 
+import { useMemo, useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
+import { useToast } from '@/components/orbit/toast'
 import { Avatar, Tag } from '@/components/orbit/primitives'
+import { Modal } from '@/components/orbit/modal'
+import { Button } from '@/components/ui/button'
+import { Search, Bell, UserMinus } from 'lucide-react'
 import type { Member } from '@/lib/orbit/types'
 
 function workload(count: number): { label: string; className: string } {
@@ -12,11 +17,24 @@ function workload(count: number): { label: string; className: string } {
 }
 
 export function AdminMembers() {
-  const { members, tasks } = useOrbit()
+  const { members, visibleTasks: tasks, updateNotify, removeMember } = useOrbit()
   const { go } = useNav()
+  const toast = useToast()
+  const [query, setQuery] = useState('')
+  const [removing, setRemoving] = useState<Member | null>(null)
 
   const activeCount = (m: Member) =>
     tasks.filter((t) => t.assigneeId === m.id && t.status !== 'done').length
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return members
+    return members.filter((m) =>
+      [m.name, m.affiliation, ...m.will, ...m.judgment, ...m.skills].some((v) =>
+        v.toLowerCase().includes(q),
+      ),
+    )
+  }, [members, query])
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
@@ -25,7 +43,17 @@ export function AdminMembers() {
         メンバーのWill・Judgment・実績の一覧です。稼働状況は目安として表示しています。
       </p>
 
-      <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card">
+      <div className="relative mt-4 max-w-sm">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="名前・所属・タグで検索"
+          className="h-9 w-full rounded-lg border border-border bg-card pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
+        />
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-lg border border-border bg-card">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -34,21 +62,18 @@ export function AdminMembers() {
                 <th className="px-4 py-3 font-medium">Active</th>
                 <th className="px-4 py-3 font-medium">Will</th>
                 <th className="px-4 py-3 font-medium">Judgment</th>
-                <th className="px-4 py-3 font-medium">Fact</th>
                 <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">新規タスク通知</th>
+                <th className="px-4 py-3 font-medium" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {members.map((m) => {
+              {filtered.map((m) => {
                 const count = activeCount(m)
                 const wl = workload(count)
                 return (
-                  <tr
-                    key={m.id}
-                    onClick={() => go({ name: 'person', id: m.id })}
-                    className="cursor-pointer transition-colors hover:bg-accent"
-                  >
-                    <td className="px-4 py-3">
+                  <tr key={m.id} className="transition-colors hover:bg-accent/40">
+                    <td className="cursor-pointer px-4 py-3" onClick={() => go({ name: 'person', id: m.id })}>
                       <div className="flex items-center gap-2.5">
                         <Avatar member={m} size={30} />
                         <div>
@@ -74,21 +99,70 @@ export function AdminMembers() {
                         )}
                       </div>
                     </td>
-                    <td className="max-w-[200px] px-4 py-3 text-xs text-muted-foreground">
-                      {m.facts.length > 0
-                        ? m.facts.slice(0, 2).map((f) => `${f.label} ${f.count}`).join(' / ')
-                        : '—'}
-                    </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs font-medium ${wl.className}`}>{wl.label}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => updateNotify(m.id, !m.notify)}
+                        className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
+                          m.notify
+                            ? 'border-primary/30 bg-primary-muted text-accent-foreground'
+                            : 'border-border text-muted-foreground hover:bg-secondary'
+                        }`}
+                      >
+                        <Bell className="size-3.5" />
+                        {m.notify ? 'ON' : 'OFF'}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setRemoving(m)}
+                        className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                      >
+                        <UserMinus className="size-3.5" />
+                        退会
+                      </button>
                     </td>
                   </tr>
                 )
               })}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    条件に一致するメンバーがいません。
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      <Modal open={!!removing} onClose={() => setRemoving(null)}>
+        <h2 className="text-base font-semibold">{removing?.name} を退会させますか？</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          このメンバーが担当していたタスクはすべて未アサインに戻ります。この操作は取り消せません。
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" className="h-9" onClick={() => setRemoving(null)}>
+            キャンセル
+          </Button>
+          <Button
+            variant="destructive"
+            className="h-9"
+            onClick={() => {
+              if (removing) {
+                removeMember(removing.id)
+                toast(`${removing.name} を退会させました`)
+              }
+              setRemoving(null)
+            }}
+          >
+            退会させる
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }

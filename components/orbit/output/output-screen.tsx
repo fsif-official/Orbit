@@ -18,13 +18,18 @@ type Target = 'all' | 'people' | 'projects'
 type View = 'workflow' | 'list' | 'calendar' | 'difficulty'
 
 export function OutputScreen() {
-  const { tasks } = useOrbit()
+  const { visibleTasks } = useOrbit()
   const { go } = useNav()
   const [target, setTarget] = useState<Target>('all')
   const [view, setView] = useState<View>('workflow')
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
 
-  const showViewAxis = target === 'all'
+  // choosing a 表示 (view) always jumps back to the "一覧" target, since the
+  // workflow/list/calendar/difficulty views only apply there
+  const selectView = (v: View) => {
+    setView(v)
+    setTarget('all')
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1360px] px-4 py-6 sm:px-6 lg:px-8">
@@ -51,46 +56,44 @@ export function OutputScreen() {
             </Seg>
           </Segment>
 
-          {showViewAxis && (
-            <Segment label="表示">
-              <Seg active={view === 'workflow'} onClick={() => setView('workflow')}>
-                <Columns3 className="size-3.5" />
-                ワークフロー
-              </Seg>
-              <Seg active={view === 'list'} onClick={() => setView('list')}>
-                <LayoutList className="size-3.5" />
-                リスト
-              </Seg>
-              <Seg active={view === 'calendar'} onClick={() => setView('calendar')}>
-                <CalendarDays className="size-3.5" />
-                カレンダー
-              </Seg>
-              <Seg active={view === 'difficulty'} onClick={() => setView('difficulty')}>
-                <GaugeCircle className="size-3.5" />
-                難易度
-              </Seg>
-            </Segment>
-          )}
+          <Segment label="表示">
+            <Seg active={target === 'all' && view === 'workflow'} onClick={() => selectView('workflow')}>
+              <Columns3 className="size-3.5" />
+              ワークフロー
+            </Seg>
+            <Seg active={target === 'all' && view === 'list'} onClick={() => selectView('list')}>
+              <LayoutList className="size-3.5" />
+              リスト
+            </Seg>
+            <Seg active={target === 'all' && view === 'calendar'} onClick={() => selectView('calendar')}>
+              <CalendarDays className="size-3.5" />
+              カレンダー
+            </Seg>
+            <Seg active={target === 'all' && view === 'difficulty'} onClick={() => selectView('difficulty')}>
+              <GaugeCircle className="size-3.5" />
+              難易度
+            </Seg>
+          </Segment>
         </div>
       </div>
 
-      {tasks.length === 0 ? (
+      {visibleTasks.length === 0 ? (
         <EmptyState onInput={() => go({ name: 'input' })} />
       ) : (
         <>
           {target === 'people' && <PeopleView />}
           {target === 'projects' && <ProjectView />}
           {target === 'all' && view === 'workflow' && (
-            <KanbanBoard tasks={tasks} onOpenTask={setOpenTaskId} />
+            <KanbanBoard tasks={visibleTasks} onOpenTask={setOpenTaskId} />
           )}
           {target === 'all' && view === 'list' && (
-            <ListView tasks={tasks} onOpenTask={setOpenTaskId} />
+            <ListView tasks={visibleTasks} onOpenTask={setOpenTaskId} />
           )}
           {target === 'all' && view === 'calendar' && (
-            <CalendarView tasks={tasks} onOpenTask={setOpenTaskId} />
+            <CalendarView tasks={visibleTasks} onOpenTask={setOpenTaskId} />
           )}
           {target === 'all' && view === 'difficulty' && (
-            <DifficultyBoard tasks={tasks} onOpenTask={setOpenTaskId} />
+            <DifficultyBoard tasks={visibleTasks} onOpenTask={setOpenTaskId} />
           )}
         </>
       )}

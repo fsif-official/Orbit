@@ -24,6 +24,18 @@ import { fetchRemoteData, isRemoteConfigured, remoteApi, toCreatePayload } from 
 type Mode = 'input' | 'output'
 type RemoteStatus = 'idle' | 'loading' | 'ready' | 'error'
 
+// A member auto-certifies a skill after this many completed tasks in the
+// same category.
+const SKILL_CERT_THRESHOLD = 3
+
+const DEFAULT_SKILL_OPTIONS = [
+  'デザイン', 'Canva', 'ライティング', 'リサーチ', 'SNS', '広報', 'コミュニケーション',
+  'イベント運営', 'メール', 'UI/UX', '実装', '企画', '要件定義', 'プロダクト設計', '校閲',
+]
+const DEFAULT_CATEGORY_OPTIONS = [
+  'デザイン', '渉外', 'イベント', '広報', 'ライティング', '企画', 'リサーチ', '開発', '物品調達',
+]
+
 interface OrbitState {
   currentUserId: string | null
   tasks: Task[]
@@ -35,11 +47,27 @@ interface OrbitState {
 
 interface OrbitContextValue extends OrbitState {
   currentUser: Member | null
+  // tasks with pendingApproval stripped out — what the normal workspace
+  // (kanban/list/calendar/people/project views) should render
+  visibleTasks: Task[]
+  // the admin's approval queue
+  pendingTasks: Task[]
   // whether the app is backed by the live spreadsheet (via GAS/CSV) or the
   // local mock data — surfaced so the UI can show sync state.
   remoteEnabled: boolean
   remoteStatus: RemoteStatus
   remoteError: string | null
+  skillOptions: string[]
+  categoryOptions: string[]
+  addSkillOption: (name: string) => void
+  removeSkillOption: (name: string) => void
+  addCategoryOption: (name: string) => void
+  removeCategoryOption: (name: string) => void
+  needsOnboarding: boolean
+  completeOnboarding: (will: string[]) => void
+  skipOnboarding: () => void
+  skillCertifiedEvent: { memberName: string; skill: string } | null
+  clearSkillCertifiedEvent: () => void
   login: (userId: string) => void
   logout: () => void
   setMode: (m: Mode) => void
@@ -51,6 +79,10 @@ interface OrbitContextValue extends OrbitState {
   assignTask: (id: string, memberId: string | null) => void
   updateWill: (memberId: string, will: string[]) => void
   updateJudgment: (memberId: string, judgment: string[]) => void
+  approveTask: (id: string) => void
+  addProject: (name: string, description: string) => void
+  removeMember: (memberId: string) => void
+  updateNotify: (memberId: string, notify: boolean) => void
   getMember: (id: string | null) => Member | undefined
   getProject: (id: string) => Project | undefined
   getInput: (id: string | undefined) => TaskInput | undefined
@@ -59,6 +91,8 @@ interface OrbitContextValue extends OrbitState {
 const OrbitContext = createContext<OrbitContextValue | null>(null)
 
 const STORAGE_KEY = 'orbit-state-v2'
+const TAGS_STORAGE_KEY = 'orbit-tag-options'
+const ONBOARDED_STORAGE_KEY = 'orbit-onboarded-ids'
 
 function loadState(): Partial<OrbitState> | null {
   if (typeof window === 'undefined') return null
@@ -68,6 +102,30 @@ function loadState(): Partial<OrbitState> | null {
   } catch {
     return null
   }
+}
+
+function loadTagOptions(): { skills: string[]; categories: string[] } | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(TAGS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function loadOnboardedIds(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(ONBOARDED_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function uniq(list: string[]): string[] {
+  return Array.from(new Set(list.map((s) => s.trim()).filter(Boolean)))
 }
 
 export function OrbitProvider({ children }: { children: React.ReactNode }) {
@@ -80,6 +138,13 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false)
   const [remoteStatus, setRemoteStatus] = useState<RemoteStatus>('idle')
   const [remoteError, setRemoteError] = useState<string | null>(null)
+  const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS)
+  const [categoryOptions, setCategoryOptions] = useState<string[]>(DEFAULT_CATEGORY_OPTIONS)
+  const [onboardedIds, setOnboardedIds] = useState<Set<string>>(new Set())
+  const [skillCertifiedEvent, setSkillCertifiedEvent] = useState<{
+    memberName: string
+    skill: string
+  } | null>(null)
 
   const reportRemoteError = useCallback((err: unknown) => {
     // eslint-disable-next-line no-console
@@ -109,6 +174,13 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       if (saved.inputs) setInputs(saved.inputs)
       if (saved.mode) setModeState(saved.mode)
     }
+    const tags = loadTagOptions()
+    if (tags) {
+      if (tags.skills?.length) setSkillOptions(uniq([...DEFAULT_SKILL_OPTIONS, ...tags.skills]))
+      if (tags.categories?.length)
+        setCategoryOptions(uniq([...DEFAULT_CATEGORY_OPTIONS, ...tags.categories]))
+    }
+    setOnboardedIds(new Set(loadOnboardedIds()))
     setHydrated(true)
   }, [])
 
@@ -130,6 +202,15 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       })
   }, [reportRemoteError])
 
+  // keep the skill/category pools growing with whatever actually shows up
+  // on tasks (from the sheet or elsewhere), not just manually-added ones
+  useEffect(() => {
+    const seenSkills = uniq(tasks.flatMap((t) => t.skills))
+    const seenCategories = uniq(tasks.map((t) => t.category))
+    setSkillOptions((prev) => uniq([...prev, ...seenSkills]))
+    setCategoryOptions((prev) => uniq([...prev, ...seenCategories]))
+  }, [tasks])
+
   // persist (local-only state: current user, input history, UI mode — the
   // task/member/project lists themselves are never the source of truth
   // once a remote DB is configured, so they're skipped from the cache then)
@@ -150,6 +231,19 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentUserId, tasks, members, projects, inputs, mode, hydrated])
 
+  // persist skill/category tag pools (device-local — see gas/README.md)
+  useEffect(() => {
+    if (!hydrated) return
+    try {
+      window.localStorage.setItem(
+        TAGS_STORAGE_KEY,
+        JSON.stringify({ skills: skillOptions, categories: categoryOptions }),
+      )
+    } catch {
+      /* ignore */
+    }
+  }, [skillOptions, categoryOptions, hydrated])
+
   const login = useCallback((userId: string) => {
     setCurrentUserId(userId)
     setModeState('input')
@@ -160,6 +254,23 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const setMode = useCallback((m: Mode) => setModeState(m), [])
+
+  const addSkillOption = useCallback((name: string) => {
+    const v = name.trim()
+    if (!v) return
+    setSkillOptions((prev) => (prev.includes(v) ? prev : [...prev, v]))
+  }, [])
+  const removeSkillOption = useCallback((name: string) => {
+    setSkillOptions((prev) => prev.filter((s) => s !== name))
+  }, [])
+  const addCategoryOption = useCallback((name: string) => {
+    const v = name.trim()
+    if (!v) return
+    setCategoryOptions((prev) => (prev.includes(v) ? prev : [...prev, v]))
+  }, [])
+  const removeCategoryOption = useCallback((name: string) => {
+    setCategoryOptions((prev) => prev.filter((c) => c !== name))
+  }, [])
 
   const addTasksFromInput = useCallback(
     (text: string, parsed: ParsedTask[]) => {
@@ -186,6 +297,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         createdById,
         createdAt: now,
         progressHistory: [],
+        pendingApproval: true,
       }))
 
       const input: TaskInput = {
@@ -266,24 +378,48 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [currentUserId, runRemote],
   )
 
+  // Auto-certify: once a member has SKILL_CERT_THRESHOLD completed tasks in
+  // the same category, that category is added to their Judgment tags.
+  const maybeCertifySkill = useCallback(
+    (allTasks: Task[], changedTaskId: string) => {
+      const changed = allTasks.find((t) => t.id === changedTaskId)
+      if (!changed?.assigneeId || !changed.category) return
+      const doneCount = allTasks.filter(
+        (t) =>
+          t.assigneeId === changed.assigneeId &&
+          t.status === 'done' &&
+          t.category === changed.category,
+      ).length
+      if (doneCount !== SKILL_CERT_THRESHOLD) return
+
+      const member = members.find((m) => m.id === changed.assigneeId)
+      if (!member || member.judgment.includes(changed.category)) return
+      const nextJudgment = [...member.judgment, changed.category]
+      setMembers((prev) => prev.map((m) => (m.id === member.id ? { ...m, judgment: nextJudgment } : m)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateJudgment(member.id, nextJudgment))
+      setSkillCertifiedEvent({ memberName: member.name, skill: changed.category })
+    },
+    [members, runRemote],
+  )
+
   const updateTaskStatus = useCallback(
     (id: string, status: TaskStatus) => {
       const today = new Date().toISOString().slice(0, 10)
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === id
-            ? {
-                ...t,
-                status,
-                lastActivity: today,
-                completedDate: status === 'done' ? today : null,
-              }
-            : t,
-        ),
+      const updated = tasks.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              status,
+              lastActivity: today,
+              completedDate: status === 'done' ? today : null,
+            }
+          : t,
       )
+      setTasks(updated)
+      if (status === 'done') maybeCertifySkill(updated, id)
       if (isRemoteConfigured) runRemote(remoteApi.updateTaskStatus(id, status))
     },
-    [runRemote],
+    [tasks, maybeCertifySkill, runRemote],
   )
 
   const assignTask = useCallback(
@@ -310,6 +446,82 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  const approveTask = useCallback(
+    (id: string) => {
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, pendingApproval: false } : t)))
+      if (isRemoteConfigured) runRemote(remoteApi.approveTask(id))
+    },
+    [runRemote],
+  )
+
+  const addProject = useCallback((name: string, description: string) => {
+    const tempId = `p-${Math.random().toString(36).slice(2, 9)}`
+    setProjects((prev) => [...prev, { id: tempId, name, description }])
+    if (isRemoteConfigured) {
+      remoteApi
+        .createProject(name, description)
+        .then(({ id }) => {
+          setProjects((prev) => prev.map((p) => (p.id === tempId ? { ...p, id } : p)))
+          setRemoteError(null)
+        })
+        .catch(reportRemoteError)
+    }
+  }, [reportRemoteError])
+
+  const removeMember = useCallback(
+    (memberId: string) => {
+      setMembers((prev) => prev.filter((m) => m.id !== memberId))
+      setTasks((prev) =>
+        prev.map((t) => (t.assigneeId === memberId ? { ...t, assigneeId: null } : t)),
+      )
+      setCurrentUserId((prev) => (prev === memberId ? null : prev))
+      if (isRemoteConfigured) runRemote(remoteApi.removeMember(memberId))
+    },
+    [runRemote],
+  )
+
+  const updateNotify = useCallback(
+    (memberId: string, notify: boolean) => {
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, notify } : m)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateNotify(memberId, notify))
+    },
+    [runRemote],
+  )
+
+  const persistOnboarded = useCallback((ids: Set<string>) => {
+    try {
+      window.localStorage.setItem(ONBOARDED_STORAGE_KEY, JSON.stringify([...ids]))
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const completeOnboarding = useCallback(
+    (will: string[]) => {
+      if (!currentUserId) return
+      updateWill(currentUserId, will)
+      setOnboardedIds((prev) => {
+        const next = new Set(prev)
+        next.add(currentUserId)
+        persistOnboarded(next)
+        return next
+      })
+    },
+    [currentUserId, updateWill, persistOnboarded],
+  )
+
+  const skipOnboarding = useCallback(() => {
+    if (!currentUserId) return
+    setOnboardedIds((prev) => {
+      const next = new Set(prev)
+      next.add(currentUserId)
+      persistOnboarded(next)
+      return next
+    })
+  }, [currentUserId, persistOnboarded])
+
+  const clearSkillCertifiedEvent = useCallback(() => setSkillCertifiedEvent(null), [])
+
   const getMember = useCallback(
     (id: string | null) => members.find((m) => m.id === id),
     [members],
@@ -328,9 +540,20 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [members, currentUserId],
   )
 
+  const visibleTasks = useMemo(() => tasks.filter((t) => !t.pendingApproval), [tasks])
+  const pendingTasks = useMemo(() => tasks.filter((t) => t.pendingApproval), [tasks])
+
+  const needsOnboarding = !!(
+    currentUser &&
+    currentUser.will.length === 0 &&
+    !onboardedIds.has(currentUser.id)
+  )
+
   const value: OrbitContextValue = {
     currentUserId,
     tasks,
+    visibleTasks,
+    pendingTasks,
     members,
     projects,
     inputs,
@@ -339,6 +562,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     remoteEnabled: isRemoteConfigured,
     remoteStatus,
     remoteError,
+    skillOptions,
+    categoryOptions,
+    addSkillOption,
+    removeSkillOption,
+    addCategoryOption,
+    removeCategoryOption,
+    needsOnboarding,
+    completeOnboarding,
+    skipOnboarding,
+    skillCertifiedEvent,
+    clearSkillCertifiedEvent,
     login,
     logout,
     setMode,
@@ -349,6 +583,10 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     assignTask,
     updateWill,
     updateJudgment,
+    approveTask,
+    addProject,
+    removeMember,
+    updateNotify,
     getMember,
     getProject,
     getInput,
