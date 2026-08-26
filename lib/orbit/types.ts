@@ -111,6 +111,115 @@ export interface Member {
   // A 代表-equivalent (the highest-ranked role level) always sees/manages
   // everything regardless of this list.
   projectIds?: string[]
+
+  // ---- talent-management fields (reserved, not yet wired up) -------------
+  // Data shape for the タレントマネジメント epic requested alongside this
+  // batch (人材DB／スキル管理／人材検索／育成・キャリア／分析ダッシュボード).
+  // Scoped down for now to "prepare the full data structure only" — none of
+  // this is read/written by store.tsx, remote.ts, or gas/Code.gs yet, and
+  // there's no UI for it. Building the actual screens (人材検索フィルタ,
+  // スキルマップ, 育成計画/1on1エディタ, 人員分析ダッシュボード, etc.) is a
+  // separate, later piece of work. See TalentSearchFilters/
+  // JobTypeSkillRequirement below for the parts that aren't per-member.
+
+  // 人材検索: filterable attributes
+  yearsOfExperience?: number
+  hasManagementExperience?: boolean
+  // desired growth areas/skills ("成長したい領域やスキル"), distinct from
+  // Will (what they want to do) and skills (what they already have)
+  desiredAreas?: string[]
+
+  // 人材データベース
+  careerHistory?: CareerHistoryEntry[]
+  qualifications?: Qualification[]
+  evaluationHistory?: EvaluationRecord[]
+  transferHistory?: TransferRecord[]
+
+  // スキル管理: per-skill proficiency level and role-relevant competencies,
+  // in addition to the existing flat `skills` list
+  skillLevels?: SkillLevel[]
+  competencies?: Competency[]
+
+  // 育成・キャリア
+  careerAspiration?: string
+  desiredFutureRole?: string
+  careerPlan?: string
+  trainingHistory?: TrainingRecord[]
+  developmentPlan?: DevelopmentPlanEntry[]
+  oneOnOnes?: OneOnOneRecord[]
+}
+
+export interface CareerHistoryEntry {
+  id: string
+  startDate: string // YYYY-MM-DD
+  endDate?: string // absent = current
+  affiliation: string
+  role: string
+  description?: string
+}
+
+export interface Qualification {
+  id: string
+  name: string
+  acquiredDate?: string // YYYY-MM-DD
+  issuer?: string
+}
+
+export interface EvaluationRecord {
+  id: string
+  date: string // YYYY-MM-DD
+  evaluatorId: string
+  rating: string
+  comment?: string
+}
+
+export interface TransferRecord {
+  id: string
+  date: string // YYYY-MM-DD
+  fromAffiliation: string
+  toAffiliation: string
+  reason?: string
+}
+
+// 1 (beginner) – 5 (expert), matching the common skill-map convention
+export type SkillLevelValue = 1 | 2 | 3 | 4 | 5
+
+export interface SkillLevel {
+  skill: string
+  level: SkillLevelValue
+}
+
+export interface Competency {
+  name: string
+  level: SkillLevelValue
+}
+
+export interface TrainingRecord {
+  id: string
+  name: string
+  date: string // YYYY-MM-DD
+  provider?: string
+}
+
+export interface DevelopmentPlanEntry {
+  id: string
+  goal: string
+  targetDate?: string // YYYY-MM-DD
+  status: 'not_started' | 'in_progress' | 'done'
+}
+
+export interface OneOnOneRecord {
+  id: string
+  date: string // YYYY-MM-DD
+  withId: string // the other participant (usually reportsToId's member)
+  notes: string
+}
+
+// スキル管理: 職種ごとの必要スキルとの比較 — an org-wide config (not
+// per-member), mapping a job type to the skills/levels it expects.
+export interface JobTypeSkillRequirement {
+  jobType: string
+  requiredSkills: { skill: string; level: SkillLevelValue }[]
 }
 
 export interface Project {

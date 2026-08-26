@@ -4,9 +4,10 @@ import { useMemo, useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useToast } from '@/components/orbit/toast'
 import { Avatar, SectionLabel, Tag } from '@/components/orbit/primitives'
+import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
 import { DEPARTMENTS, DIFFICULTY_LABEL, PRIORITIES } from '@/lib/orbit/types'
-import type { Department, Difficulty, Priority, ProjectTemplateTask } from '@/lib/orbit/types'
+import type { Department, Difficulty, Priority, Project, ProjectTemplateTask } from '@/lib/orbit/types'
 import { Plus, Trash2 } from 'lucide-react'
 
 export function AdminProjects() {
@@ -15,6 +16,7 @@ export function AdminProjects() {
     adminTasks: visibleTasks,
     members,
     addProject,
+    removeProject,
     projectTypes,
     projectTemplates,
     setProjectTemplateTasks,
@@ -22,6 +24,7 @@ export function AdminProjects() {
     isFullAdmin,
   } = useOrbit()
   const toast = useToast()
+  const [removing, setRemoving] = useState<Project | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [type, setType] = useState('')
@@ -113,11 +116,13 @@ export function AdminProjects() {
               <th className="px-4 py-2.5 font-medium">概要</th>
               <th className="px-4 py-2.5 font-medium">担当者</th>
               <th className="px-4 py-2.5 font-medium">タスク数</th>
+              {isFullAdmin && <th className="px-4 py-2.5 font-medium" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {projects.map((p) => {
               const pm = projectMembers(p.id)
+              const taskCount = visibleTasks.filter((t) => t.projectId === p.id).length
               return (
                 <tr key={p.id}>
                   <td className="px-4 py-3 font-medium">{p.name}</td>
@@ -138,9 +143,18 @@ export function AdminProjects() {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 tabular-nums text-muted-foreground">
-                    {visibleTasks.filter((t) => t.projectId === p.id).length}
-                  </td>
+                  <td className="px-4 py-3 tabular-nums text-muted-foreground">{taskCount}</td>
+                  {isFullAdmin && (
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setRemoving(p)}
+                        className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                      >
+                        <Trash2 className="size-3.5" />
+                        削除
+                      </button>
+                    </td>
+                  )}
                 </tr>
               )
             })}
@@ -200,6 +214,33 @@ export function AdminProjects() {
         </div>
       </div>
       )}
+
+      <Modal open={!!removing} onClose={() => setRemoving(null)}>
+        <h2 className="text-base font-semibold">「{removing?.name}」を削除しますか？</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          このプロジェクトに紐づくタスク（
+          {removing ? visibleTasks.filter((t) => t.projectId === removing.id).length : 0}
+          件）もすべて削除されます。この操作は取り消せません。
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" className="h-9" onClick={() => setRemoving(null)}>
+            キャンセル
+          </Button>
+          <Button
+            variant="destructive"
+            className="h-9"
+            onClick={() => {
+              if (removing) {
+                removeProject(removing.id)
+                toast(`「${removing.name}」を削除しました`)
+              }
+              setRemoving(null)
+            }}
+          >
+            削除する
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }

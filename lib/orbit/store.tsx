@@ -132,6 +132,7 @@ interface OrbitContextValue extends OrbitState {
   updateJudgment: (memberId: string, judgment: string[]) => void
   approveTask: (id: string) => void
   addProject: (name: string, description: string, type?: string) => void
+  removeProject: (projectId: string) => void
   addMember: (name: string, email: string, affiliation: string, role: string) => void
   removeMember: (memberId: string) => void
   updateNotify: (memberId: string, notify: boolean) => void
@@ -780,6 +781,25 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [projectTemplates, currentUserId, reportRemoteError],
   )
 
+  // a task can't exist without a project (Task.projectId is required), so
+  // unlike removeMember's unassign-in-place, this cascades to delete the
+  // project's tasks too, and drops it from any scoped admin's project_ids
+  const removeProject = useCallback(
+    (projectId: string) => {
+      setProjects((prev) => prev.filter((p) => p.id !== projectId))
+      setTasks((prev) => prev.filter((t) => t.projectId !== projectId))
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.projectIds?.includes(projectId)
+            ? { ...m, projectIds: m.projectIds.filter((id) => id !== projectId) }
+            : m,
+        ),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.removeProject(projectId))
+    },
+    [runRemote],
+  )
+
   const addMember = useCallback(
     (name: string, email: string, affiliation: string, role: string) => {
       const tempId = `m-${Math.random().toString(36).slice(2, 9)}`
@@ -1172,6 +1192,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateJudgment,
     approveTask,
     addProject,
+    removeProject,
     addMember,
     removeMember,
     updateNotify,

@@ -81,6 +81,9 @@ function doPost(e) {
       case 'createProject':
         result = createProject(body.name, body.description, body.type)
         break
+      case 'removeProject':
+        result = removeProject(body.projectId)
+        break
       case 'removeMember':
         result = removeMember(body.memberId)
         break
@@ -444,6 +447,66 @@ function createProject(name, description, type) {
   })
   sheet.appendRow(row)
   return { id: id }
+}
+
+// Deletes a project and cascades: a task can't exist without a project
+// (see lib/orbit/types.ts's Task.projectId, which is required), so its
+// tasks are removed too, not just unassigned like removeMember does for
+// members. Any admin scoped to this project (see project_ids) has it
+// dropped from their scope so they don't end up referencing a dead id.
+function removeProject(projectId) {
+  var projects = getSheet(SHEET_PROJECTS)
+  var projectHeaders = headerRow(projects)
+  var idCol = projectHeaders.indexOf('id') + 1
+  var lastRow = projects.getLastRow()
+  var ids = idCol > 0 ? projects.getRange(2, idCol, Math.max(lastRow - 1, 0), 1).getValues() : []
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === String(projectId)) {
+      projects.deleteRow(i + 2)
+      break
+    }
+  }
+
+  var tasks = getSheet(SHEET_TASKS)
+  var taskHeaders = headerRow(tasks)
+  var projectCol = taskHeaders.indexOf('project_id') + 1
+  if (projectCol > 0) {
+    var taskLastRow = tasks.getLastRow()
+    var projectIds =
+      taskLastRow > 1 ? tasks.getRange(2, projectCol, taskLastRow - 1, 1).getValues() : []
+    // walk bottom-to-top so deleting a row doesn't shift the indices of
+    // rows still to be checked
+    for (var j = projectIds.length - 1; j >= 0; j--) {
+      if (String(projectIds[j][0]) === String(projectId)) {
+        tasks.deleteRow(j + 2)
+      }
+    }
+  }
+
+  var members = getSheet(SHEET_MEMBERS)
+  var memberHeaders = headerRow(members)
+  var projIdsCol = memberHeaders.indexOf('project_ids') + 1
+  if (projIdsCol > 0) {
+    var memberLastRow = members.getLastRow()
+    var memberProjectIds =
+      memberLastRow > 1 ? members.getRange(2, projIdsCol, memberLastRow - 1, 1).getValues() : []
+    for (var k = 0; k < memberProjectIds.length; k++) {
+      var list = String(memberProjectIds[k][0] || '')
+        .split(',')
+        .map(function (s) {
+          return s.trim()
+        })
+        .filter(Boolean)
+      if (list.indexOf(String(projectId)) !== -1) {
+        var next = list.filter(function (id) {
+          return id !== String(projectId)
+        })
+        members.getRange(k + 2, projIdsCol).setValue(next.join(','))
+      }
+    }
+  }
+
+  return { removed: projectId }
 }
 
 // ---- Members ----------------------------------------------------------------

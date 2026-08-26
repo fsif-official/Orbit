@@ -344,6 +344,7 @@ export const remoteApi = {
   approveTask: (taskId: string) => postToGas('approveTask', { taskId }),
   createProject: (name: string, description: string, type?: string) =>
     postToGas<{ id: string }>('createProject', { name, description, type }),
+  removeProject: (projectId: string) => postToGas('removeProject', { projectId }),
   removeMember: (memberId: string) => postToGas('removeMember', { memberId }),
   updateNotify: (memberId: string, notify: boolean) =>
     postToGas('updateNotify', { memberId, notify }),
