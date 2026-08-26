@@ -1727,6 +1727,30 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
             taskId: t.id,
           })
         })
+      // item 10: SLA/放置アラート — 確認待ちが3日、進行中タスクの更新が
+      // 7日ないと通知。lastActivity は既存の「放置検知」用フィールド
+      // (types.ts) をそのまま流用
+      adminTasks.forEach((t) => {
+        const idle = daysSince(t.lastActivity)
+        if (idle === null) return
+        if (t.status === 'review' && idle >= 3) {
+          items.push({
+            id: `stale-review-${t.id}`,
+            kind: 'stale',
+            title: `確認待ちが${idle}日経過: ${t.name}`,
+            detail: '対応が滞っていないか確認してください',
+            taskId: t.id,
+          })
+        } else if (t.status !== 'done' && t.status !== 'review' && idle >= 7) {
+          items.push({
+            id: `stale-progress-${t.id}`,
+            kind: 'stale',
+            title: `${idle}日間更新なし: ${t.name}`,
+            detail: '進捗を確認してください',
+            taskId: t.id,
+          })
+        }
+      })
     }
     visibleTasks
       .filter((t) => t.assigneeIds.includes(currentUser.id) && t.status !== 'done')

@@ -15,6 +15,7 @@ import {
   CheckCheck,
   ChevronDown,
   ClipboardCheck,
+  Clock,
   LogOut,
   Moon,
   RefreshCw,
@@ -155,6 +156,8 @@ export function Header() {
                     >
                       {n.kind === 'deadline' ? (
                         <CalendarClock className="mt-0.5 size-4 shrink-0 text-warning" />
+                      ) : n.kind === 'stale' ? (
+                        <Clock className="mt-0.5 size-4 shrink-0 text-warning" />
                       ) : (
                         <ClipboardCheck className="mt-0.5 size-4 shrink-0 text-primary" />
                       )}

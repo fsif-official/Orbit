@@ -454,7 +454,9 @@ export const PRIORITY_LINE: Record<Priority, string> = {
 // state (see store.tsx's `notifications`), not persisted.
 export interface NotificationItem {
   id: string
-  kind: 'approval' | 'review' | 'deadline'
+  // 'stale' = item 10 (SLA/放置アラート): 確認待ちが3日以上、または
+  // 進行中タスクの更新が7日以上ない場合に表示
+  kind: 'approval' | 'review' | 'deadline' | 'stale'
   title: string
   detail: string
   taskId: string
