@@ -190,6 +190,11 @@ interface OrbitContextValue extends OrbitState {
   getMember: (id: string | null) => Member | undefined
   getProject: (id: string) => Project | undefined
   getInput: (id: string | undefined) => TaskInput | undefined
+  // union of explicitly-assigned members (Project.memberIds) and whoever's
+  // actually assigned to one of the project's tasks — the same "who's on
+  // this project" definition admin-projects.tsx uses, so the workspace
+  // (project-view/project-detail) shows the same assignments as Admin does
+  getProjectMembers: (projectId: string) => Member[]
 }
 
 const OrbitContext = createContext<OrbitContextValue | null>(null)
@@ -1559,6 +1564,20 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [tasks],
   )
 
+  const getProjectMembers = useCallback(
+    (projectId: string) => {
+      const project = projects.find((p) => p.id === projectId)
+      const ids = Array.from(
+        new Set([
+          ...(project?.memberIds ?? []),
+          ...visibleTasks.filter((t) => t.projectId === projectId).flatMap((t) => t.assigneeIds),
+        ]),
+      )
+      return ids.map((id) => members.find((m) => m.id === id)).filter(Boolean) as Member[]
+    },
+    [projects, visibleTasks, members],
+  )
+
   // A member holding the highest-ranked configured role level (see
   // roleLevels — default top level is 代表) manages everything, matching
   // today's behavior. Any other admin-level role is scoped to their own
@@ -1761,6 +1780,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     getMember,
     getProject,
     getInput,
+    getProjectMembers,
   }
 
   return <OrbitContext.Provider value={value}>{children}</OrbitContext.Provider>

@@ -14,7 +14,7 @@ import { ArrowLeft } from 'lucide-react'
 type Tab = 'overview' | 'workflow' | 'calendar'
 
 export function ProjectDetail({ id }: { id: string }) {
-  const { getProject, visibleTasks: tasks, members } = useOrbit()
+  const { getProject, visibleTasks: tasks, members, getProjectMembers } = useOrbit()
   const { go } = useNav()
   const [tab, setTab] = useState<Tab>('overview')
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
@@ -33,8 +33,8 @@ export function ProjectDetail({ id }: { id: string }) {
   const waiting = pt.filter((t) => t.status === 'review').length
   const overdue = pt.filter((t) => isOverdue(t)).length
   const completion = pt.length ? Math.round((done / pt.length) * 100) : 0
-  const memberIds = Array.from(new Set(pt.flatMap((t) => t.assigneeIds)))
-  const projMembers = memberIds.map((mid) => members.find((m) => m.id === mid)).filter(Boolean)
+  const projMembers = getProjectMembers(id)
+  const owner = members.find((m) => m.id === project.ownerId)
 
   return (
     <div className="mx-auto w-full max-w-[1360px] px-4 py-6 sm:px-6 lg:px-8">
@@ -55,15 +55,22 @@ export function ProjectDetail({ id }: { id: string }) {
               <h1 className="text-xl font-semibold tracking-tight">{project.name}</h1>
             </div>
             <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">{project.description}</p>
+            {owner && (
+              <button
+                onClick={() => go({ name: 'person', id: owner.id })}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-xs hover:bg-secondary"
+              >
+                <Avatar member={owner} size={18} />
+                <span className="text-muted-foreground">責任者:</span>
+                {owner.displayName || owner.name}
+              </button>
+            )}
             <div className="mt-3 flex -space-x-1.5">
-              {projMembers.slice(0, 6).map(
-                (m) =>
-                  m && (
-                    <span key={m.id} className="rounded-full ring-2 ring-card">
-                      <Avatar member={m} size={26} />
-                    </span>
-                  ),
-              )}
+              {projMembers.slice(0, 6).map((m) => (
+                <span key={m.id} className="rounded-full ring-2 ring-card">
+                  <Avatar member={m} size={26} />
+                </span>
+              ))}
             </div>
           </div>
           <div className="text-right">

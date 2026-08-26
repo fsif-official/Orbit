@@ -28,6 +28,7 @@ import {
   ImageUp,
   Loader2,
   Trash2,
+  FolderKanban,
 } from 'lucide-react'
 
 type Tab = 'overview' | 'growth' | 'calendar'
@@ -62,10 +63,12 @@ export function PersonDetail({ id }: { id: string }) {
     getMember,
     visibleTasks: tasks,
     members,
+    projects,
     currentUser,
     updateWill,
     updateJudgment,
     getProject,
+    getProjectMembers,
     updateDisplayName,
     toggleUnavailableDate,
     updateAvatar,
@@ -160,6 +163,13 @@ export function PersonDetail({ id }: { id: string }) {
     .sort((a, b) => b[1].length - a[1].length)
   const mentorsFor = (skill: string) =>
     members.filter((m) => m.id !== member.id && m.skills.includes(skill))
+
+  // 所属プロジェクト: owner, explicitly-assigned member, or assigned to one
+  // of the project's tasks — same "who's on this project" definition the
+  // admin/workspace project views use (see getProjectMembers)
+  const memberProjects = projects.filter(
+    (p) => p.ownerId === member.id || getProjectMembers(p.id).some((m) => m.id === member.id),
+  )
 
   const isSelf = currentUser?.id === member.id
   const isAdmin = !!currentUser && isAdminRole(currentUser.role)
@@ -495,6 +505,37 @@ export function PersonDetail({ id }: { id: string }) {
             <p className="text-sm text-muted-foreground">まだ実績がありません</p>
           )}
         </TalentCard>
+      </div>
+
+      {/* Projects */}
+      <div className="mt-6">
+        <div className="flex items-center gap-2">
+          <FolderKanban className="size-4 text-primary" />
+          <SectionLabel>所属プロジェクト</SectionLabel>
+        </div>
+        {memberProjects.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">所属しているプロジェクトはありません。</p>
+        ) : (
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {memberProjects.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => go({ name: 'project', id: p.id })}
+                className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-colors hover:bg-secondary/50"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{p.name}</p>
+                  {p.type && <p className="truncate text-xs text-muted-foreground">{p.type}</p>}
+                </div>
+                {p.ownerId === member.id && (
+                  <span className="shrink-0 rounded-md bg-primary-muted px-1.5 py-0.5 text-[10px] font-semibold text-accent-foreground">
+                    責任者
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Achievements */}

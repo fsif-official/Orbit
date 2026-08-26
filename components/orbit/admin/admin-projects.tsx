@@ -29,6 +29,7 @@ export function AdminProjects() {
     removeProject,
     updateProjectMembers,
     updateProjectOwner,
+    getProjectMembers,
     projectTypes,
     projectTemplates,
     setProjectTemplateTasks,
@@ -69,20 +70,6 @@ export function AdminProjects() {
     setName('')
     setDescription('')
     setType('')
-  }
-
-  // union of explicitly-assigned members (Project.memberIds, managed below)
-  // and whoever's actually assigned to one of the project's tasks — keeps
-  // older projects' avatar stack populated even before anyone touches the
-  // new "担当者を管理" control
-  const projectMembers = (project: Project) => {
-    const ids = Array.from(
-      new Set([
-        ...(project.memberIds ?? []),
-        ...visibleTasks.filter((t) => t.projectId === project.id).flatMap((t) => t.assigneeIds),
-      ]),
-    )
-    return ids.map((id) => members.find((m) => m.id === id)).filter(Boolean) as typeof members
   }
 
   return (
@@ -155,7 +142,7 @@ export function AdminProjects() {
           </thead>
           <tbody className="divide-y divide-border">
             {projects.map((p) => {
-              const pm = projectMembers(p)
+              const pm = getProjectMembers(p.id)
               const owner = members.find((m) => m.id === p.ownerId)
               const taskCount = visibleTasks.filter((t) => t.projectId === p.id).length
               return (
@@ -178,15 +165,13 @@ export function AdminProjects() {
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
-                      {isFullAdmin && (
-                        <button
-                          onClick={() => setManagingMembersOf(p)}
-                          className="text-muted-foreground hover:text-foreground"
-                          aria-label="担当者を管理"
-                        >
-                          <UserPlus className="size-3.5" />
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setManagingMembersOf(p)}
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label="担当者を管理"
+                      >
+                        <UserPlus className="size-3.5" />
+                      </button>
                     </div>
                   </td>
                   <td className="px-4 py-3">
@@ -199,15 +184,13 @@ export function AdminProjects() {
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
-                      {isFullAdmin && (
-                        <button
-                          onClick={() => setManagingOwnerOf(p)}
-                          className="text-muted-foreground hover:text-foreground"
-                          aria-label="責任者を編集"
-                        >
-                          <UserCog className="size-3.5" />
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setManagingOwnerOf(p)}
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label="責任者を編集"
+                      >
+                        <UserCog className="size-3.5" />
+                      </button>
                     </div>
                   </td>
                   <td className="px-4 py-3 tabular-nums text-muted-foreground">{taskCount}</td>
