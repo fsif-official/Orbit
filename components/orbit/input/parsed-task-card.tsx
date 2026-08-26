@@ -4,9 +4,10 @@ import { useState } from 'react'
 import type { ParsedTask } from '@/lib/orbit/types'
 import { DIFFICULTY_LABEL } from '@/lib/orbit/types'
 import { useOrbit } from '@/lib/orbit/store'
-import { Card, DifficultyBadge, Tag } from '../primitives'
+import { Card, DifficultyBadge, Tag, Avatar } from '../primitives'
 import { cn } from '@/lib/utils'
-import { Check, Plus, X } from 'lucide-react'
+import { rankCandidates } from '@/lib/orbit/utils'
+import { Check, Plus, Sparkles, X } from 'lucide-react'
 
 export function ParsedTaskCard({
   task,
@@ -17,8 +18,9 @@ export function ParsedTaskCard({
   onChange: (t: ParsedTask) => void
   onToggle: () => void
 }) {
-  const { projects } = useOrbit()
+  const { projects, members } = useOrbit()
   const [skillDraft, setSkillDraft] = useState('')
+  const candidates = rankCandidates(task, members).slice(0, 3)
 
   const set = <K extends keyof ParsedTask>(key: K, value: ParsedTask[K]) =>
     onChange({ ...task, [key]: value })
@@ -146,6 +148,27 @@ export function ParsedTaskCard({
             </span>
           </div>
         </Field>
+
+        {candidates.length > 0 && (
+          <Field label="おすすめ担当" className="col-span-2 sm:col-span-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Sparkles className="size-3.5 shrink-0 text-primary" />
+              {candidates.map(({ member, matches }) => (
+                <span
+                  key={member.id}
+                  title={`一致: ${matches.join('、')}`}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/5 px-1.5 py-0.5 text-xs font-medium text-foreground"
+                >
+                  <Avatar member={member} size={18} />
+                  {member.name}
+                  <span className="text-[10px] font-normal text-muted-foreground">
+                    {matches.length}件一致
+                  </span>
+                </span>
+              ))}
+            </div>
+          </Field>
+        )}
       </div>
     </Card>
   )
