@@ -1,4 +1,3 @@
-import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
@@ -17,7 +16,6 @@ export const metadata: Metadata = {
   title: 'Orbit — タスクを打ち上げ、組織を軌道に乗せる',
   description:
     'Orbit は Task Management × Talent Management × Human Development を接続する組織運営システムです。',
-  generator: 'v0.app',
 }
 
 export const viewport: Viewport = {
@@ -35,10 +33,7 @@ export default function RootLayout({
       lang="ja"
       className={`${geistSans.variable} ${geistMono.variable} bg-background`}
     >
-      <body className="font-sans antialiased">
-        {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
-      </body>
+      <body className="font-sans antialiased">{children}</body>
     </html>
   )
 }
