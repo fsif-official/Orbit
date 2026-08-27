@@ -11,7 +11,7 @@ import { EditableTags } from '@/components/orbit/editable-tags'
 import { CareerTab } from '@/components/orbit/people/career-tab'
 import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
-import { formatDeadlineFull } from '@/lib/orbit/utils'
+import { formatDeadlineFull, memberSkillFieldProgress } from '@/lib/orbit/utils'
 import { isAdminRole, BASE_ROLE, DIFFICULTY_LABEL } from '@/lib/orbit/types'
 import { AVATAR_PALETTE } from '@/lib/orbit/remote'
 import { cn } from '@/lib/utils'
@@ -81,6 +81,8 @@ export function PersonDetail({ id }: { id: string }) {
     jobRequirements,
     skillOptions,
     addSkillOption,
+    skillFieldSkills,
+    skillFieldThreshold,
     updateSearchProfile,
     updateCareerHistory,
     updateQualifications,
@@ -211,6 +213,14 @@ export function PersonDetail({ id }: { id: string }) {
   const positionRequirements = jobRequirements[member.role] ?? []
   const positionHas = positionRequirements.filter((s) => member.skills.includes(s))
   const positionMissing = positionRequirements.filter((s) => !member.skills.includes(s))
+
+  // 要求分野 — never assigned directly; derived from how much of each
+  // field's constituent 要求スキル this member already holds
+  const skillFieldProgress = memberSkillFieldProgress(
+    member.skills,
+    skillFieldSkills,
+    skillFieldThreshold,
+  )
 
   // 所属プロジェクト: owner, explicitly-assigned member, or assigned to one
   // of the project's tasks — same "who's on this project" definition the
@@ -511,6 +521,42 @@ export function PersonDetail({ id }: { id: string }) {
                     </button>
                     <span className="text-xs text-muted-foreground">
                       カバーできるスキル：{covers.join('、')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* 要求分野 — derived from the 要求スキル held, not assigned directly */}
+          {skillFieldProgress.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <SectionLabel>取得分野</SectionLabel>
+              <p className="mt-1 text-xs text-muted-foreground">
+                分野は直接割り当てられるものではなく、その分野の要求スキルを
+                {Math.round(skillFieldThreshold * 100)}
+                %以上保有すると自動的に取得したものとみなされます。
+              </p>
+              <ul className="mt-3 flex flex-col gap-2">
+                {skillFieldProgress.map(({ field, held, total, acquired }) => (
+                  <li
+                    key={field}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-secondary/30 px-3 py-2"
+                  >
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      {acquired && <Check className="size-3.5 text-primary" strokeWidth={3} />}
+                      {field}
+                    </span>
+                    <span
+                      className={cn(
+                        'shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium',
+                        acquired
+                          ? 'bg-primary-muted text-accent-foreground'
+                          : 'text-muted-foreground',
+                      )}
+                    >
+                      {held.length}/{total.length}
+                      {acquired ? '（取得済み）' : ''}
                     </span>
                   </li>
                 ))}

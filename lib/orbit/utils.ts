@@ -67,6 +67,40 @@ export function matchSkills(task: { skills: string[] }, member: Member): string[
   return task.skills.filter((s) => member.skills.includes(s))
 }
 
+export interface SkillFieldProgress {
+  field: string
+  held: string[]
+  total: string[]
+  ratio: number
+  acquired: boolean
+}
+
+// 要求分野 — a field (デザイン/営業/AI活用...) is never assigned to a member
+// directly; it's derived from how much of the field's constituent 要求スキル
+// the member already holds. A field with no skills configured yet can't be
+// acquired (ratio would be a meaningless 0/0).
+export function memberSkillFieldProgress(
+  memberSkills: string[],
+  skillFieldSkills: Record<string, string[]>,
+  threshold: number,
+): SkillFieldProgress[] {
+  return Object.entries(skillFieldSkills).map(([field, total]) => {
+    const held = total.filter((s) => memberSkills.includes(s))
+    const ratio = total.length > 0 ? held.length / total.length : 0
+    return { field, held, total, ratio, acquired: total.length > 0 && ratio >= threshold }
+  })
+}
+
+export function memberAcquiredFields(
+  memberSkills: string[],
+  skillFieldSkills: Record<string, string[]>,
+  threshold: number,
+): string[] {
+  return memberSkillFieldProgress(memberSkills, skillFieldSkills, threshold)
+    .filter((p) => p.acquired)
+    .map((p) => p.field)
+}
+
 // crude tokenizer for Japanese/English mixed task names — splits on
 // whitespace and common punctuation, drops very short tokens
 function tokenize(name: string): Set<string> {
