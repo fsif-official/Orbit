@@ -68,12 +68,25 @@ const SKILL_CERT_THRESHOLD = 3
 const ARCHIVE_AFTER_DAYS = 14
 
 const DEFAULT_SKILL_OPTIONS = [
-  'デザイン', 'Canva', 'ライティング', 'リサーチ', 'SNS', '広報', 'コミュニケーション',
-  'イベント運営', 'メール', 'UI/UX', '実装', '企画', '要件定義', 'プロダクト設計', '校閲',
+  'デザイン', 'Canva', 'PowerPoint', 'ライティング', 'リサーチ', 'SNS', '広報', 'コミュニケーション',
+  'イベント運営', 'メール', 'UI/UX', '実装', '企画', '要件定義', 'プロダクト設計', '校閲', 'Claude', 'V0',
 ]
 const DEFAULT_CATEGORY_OPTIONS = [
   '未分類', 'デザイン', '渉外', 'イベント', '広報', 'ライティング', '企画', 'リサーチ', '開発', '物品調達',
 ]
+
+// 要求分野（デザイン/営業/AI活用など）は要求スキル（Canva/PowerPoint/Claude/V0など）
+// の上位グルーピング。メンバーに直接割り当てるのはスキルのみで、分野は
+// 「その分野のスキルをどれだけ保有しているか」から自動的に導出される
+// （見出し取得の判定に使う割合— see utils.ts の memberAcquiredFields）
+const DEFAULT_SKILL_FIELD_OPTIONS = ['デザイン', '営業', 'AI活用']
+const DEFAULT_SKILL_FIELD_SKILLS: Record<string, string[]> = {
+  デザイン: ['Canva', 'UI/UX'],
+  営業: ['コミュニケーション'],
+  AI活用: ['Claude', 'V0'],
+}
+// 数字は仮 — Admin → Tagsから変更可能
+const DEFAULT_SKILL_FIELD_THRESHOLD = 0.8
 
 // Admin-defined permission levels above the fixed 一般 baseline (see
 // types.ts's BASE_ROLE/isAdminRole) — freely add/removable from Admin →
@@ -147,6 +160,17 @@ interface OrbitContextValue extends OrbitState {
   // item 17: ポジション要件 — jobType (role level string) -> required skills
   jobRequirements: Record<string, string[]>
   setJobRequirements: (jobType: string, skills: string[]) => void
+  // 要求分野 — a field (デザイン/営業/AI活用...) groups several 要求スキル;
+  // members are only ever assigned individual skills, and a field counts as
+  // "acquired" once skillFieldThreshold's share of its skills is held
+  // (see utils.ts's memberAcquiredFields)
+  skillFieldOptions: string[]
+  addSkillFieldOption: (name: string) => void
+  removeSkillFieldOption: (name: string) => void
+  skillFieldSkills: Record<string, string[]>
+  setSkillFieldSkills: (field: string, skills: string[]) => void
+  skillFieldThreshold: number
+  setSkillFieldThreshold: (threshold: number) => void
   setDiscordWebhookUrl: (url: string) => void
   addRecurringRule: (rule: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => void
   removeRecurringRule: (ruleId: string) => void
@@ -262,6 +286,11 @@ const RECURRING_RULES_STORAGE_KEY = 'orbit-recurring-rules'
 // item 17: ポジション要件 — localStorage fallback for when the optional
 // Settings sheet isn't configured, same as the other option pools below
 const JOB_REQUIREMENTS_STORAGE_KEY = 'orbit-job-requirements'
+// 要求分野 — the field name pool lives alongside skill/category in
+// TAGS_STORAGE_KEY; the field->skills mapping and threshold get their own
+// keys, same pattern as jobRequirements
+const SKILL_FIELD_SKILLS_STORAGE_KEY = 'orbit-skill-field-skills'
+const SKILL_FIELD_THRESHOLD_STORAGE_KEY = 'orbit-skill-field-threshold'
 
 function loadState(): Partial<OrbitState> | null {
   if (typeof window === 'undefined') return null
@@ -273,7 +302,12 @@ function loadState(): Partial<OrbitState> | null {
   }
 }
 
-function loadTagOptions(): { skills: string[]; categories: string[]; roleLevels?: string[] } | null {
+function loadTagOptions(): {
+  skills: string[]
+  categories: string[]
+  roleLevels?: string[]
+  skillFieldOptions?: string[]
+} | null {
   if (typeof window === 'undefined') return null
   try {
     const raw = window.localStorage.getItem(TAGS_STORAGE_KEY)
@@ -343,6 +377,28 @@ function loadJobRequirements(): Record<string, string[]> {
   }
 }
 
+function loadSkillFieldSkills(): Record<string, string[]> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(SKILL_FIELD_SKILLS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function loadSkillFieldThreshold(): number | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(SKILL_FIELD_THRESHOLD_STORAGE_KEY)
+    if (!raw) return null
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : null
+  } catch {
+    return null
+  }
+}
+
 function uniq(list: string[]): string[] {
   return Array.from(new Set(list.map((s) => s.trim()).filter(Boolean)))
 }
@@ -376,6 +432,13 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const [recurringRules, setRecurringRules] = useState<RecurringTaskRule[]>([])
   // item 17: ポジション要件 — jobType (role level string) -> required skills
   const [jobRequirements, setJobRequirementsState] = useState<Record<string, string[]>>({})
+  // 要求分野: field name pool + field -> constituent skills + acquisition threshold
+  const [skillFieldOptions, setSkillFieldOptions] = useState<string[]>(DEFAULT_SKILL_FIELD_OPTIONS)
+  const [skillFieldSkills, setSkillFieldSkillsState] =
+    useState<Record<string, string[]>>(DEFAULT_SKILL_FIELD_SKILLS)
+  const [skillFieldThreshold, setSkillFieldThresholdState] = useState<number>(
+    DEFAULT_SKILL_FIELD_THRESHOLD,
+  )
   const [onboardedIds, setOnboardedIds] = useState<Set<string>>(new Set())
   const [skillCertifiedEvent, setSkillCertifiedEvent] = useState<{
     memberName: string
@@ -417,12 +480,18 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         if (tags.categories?.length)
           setCategoryOptions(uniq([...DEFAULT_CATEGORY_OPTIONS, ...tags.categories]))
         if (tags.roleLevels) setRoleLevels(uniq(tags.roleLevels))
+        if (tags.skillFieldOptions?.length)
+          setSkillFieldOptions(uniq([...DEFAULT_SKILL_FIELD_OPTIONS, ...tags.skillFieldOptions]))
       }
       setProjectTemplates(loadProjectTemplates())
       setRolePermissionsState(loadRolePermissions())
       setTaskSetTemplates(loadTaskSetTemplates())
       setRecurringRules(loadRecurringRules())
       setJobRequirementsState(loadJobRequirements())
+      const savedFieldSkills = loadSkillFieldSkills()
+      if (Object.keys(savedFieldSkills).length) setSkillFieldSkillsState(savedFieldSkills)
+      const savedThreshold = loadSkillFieldThreshold()
+      if (savedThreshold !== null) setSkillFieldThresholdState(savedThreshold)
     }
     setOnboardedIds(new Set(loadOnboardedIds()))
     setHydrated(true)
@@ -463,6 +532,11 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         setTaskSetTemplates(s.taskSetTemplates)
         setRecurringRules(s.recurringRules)
         setJobRequirementsState(s.jobRequirements)
+        setSkillFieldOptions(
+          s.skillFieldOptions.length ? uniq(s.skillFieldOptions) : DEFAULT_SKILL_FIELD_OPTIONS,
+        )
+        setSkillFieldSkillsState(s.skillFieldSkills)
+        setSkillFieldThresholdState(s.skillFieldThreshold ?? DEFAULT_SKILL_FIELD_THRESHOLD)
         setRemoteError(null)
         setSettingsReady(true)
       })
@@ -506,6 +580,13 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           setTaskSetTemplates(settings.taskSetTemplates)
           setRecurringRules(settings.recurringRules)
           setJobRequirementsState(settings.jobRequirements)
+          setSkillFieldOptions(
+            settings.skillFieldOptions.length
+              ? uniq(settings.skillFieldOptions)
+              : DEFAULT_SKILL_FIELD_OPTIONS,
+          )
+          setSkillFieldSkillsState(settings.skillFieldSkills)
+          setSkillFieldThresholdState(settings.skillFieldThreshold ?? DEFAULT_SKILL_FIELD_THRESHOLD)
         }
         setRemoteError(null)
       })
@@ -628,12 +709,12 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     try {
       window.localStorage.setItem(
         TAGS_STORAGE_KEY,
-        JSON.stringify({ skills: skillOptions, categories: categoryOptions, roleLevels }),
+        JSON.stringify({ skills: skillOptions, categories: categoryOptions, roleLevels, skillFieldOptions }),
       )
     } catch {
       /* ignore */
     }
-  }, [skillOptions, categoryOptions, roleLevels, hydrated])
+  }, [skillOptions, categoryOptions, roleLevels, skillFieldOptions, hydrated])
 
   // persist project-type templates (device-local, same caveat as tags)
   useEffect(() => {
@@ -683,6 +764,24 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     }
   }, [jobRequirements, hydrated])
 
+  useEffect(() => {
+    if (!hydrated || isSettingsConfigured) return
+    try {
+      window.localStorage.setItem(SKILL_FIELD_SKILLS_STORAGE_KEY, JSON.stringify(skillFieldSkills))
+    } catch {
+      /* ignore */
+    }
+  }, [skillFieldSkills, hydrated])
+
+  useEffect(() => {
+    if (!hydrated || isSettingsConfigured) return
+    try {
+      window.localStorage.setItem(SKILL_FIELD_THRESHOLD_STORAGE_KEY, String(skillFieldThreshold))
+    } catch {
+      /* ignore */
+    }
+  }, [skillFieldThreshold, hydrated])
+
   // item 17: ポジション要件 — synced via the optional Settings sheet
   // (job_requirements key), same pattern as role_permissions/project_templates
   const setJobRequirements = useCallback(
@@ -693,6 +792,58 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           runRemote(remoteApi.updateSetting('job_requirements', JSON.stringify(next)))
         return next
       })
+    },
+    [runRemote],
+  )
+
+  // 要求分野 — the field name pool (skill_field_options) and its per-field
+  // skill composition (skill_field_skills), same pattern as roleLevels/
+  // rolePermissions
+  const addSkillFieldOption = useCallback(
+    (name: string) => {
+      const v = name.trim()
+      if (!v || skillFieldOptions.includes(v)) return
+      const next = [...skillFieldOptions, v]
+      setSkillFieldOptions(next)
+      if (isSettingsConfigured)
+        runRemote(remoteApi.updateSetting('skill_field_options', next.join(',')))
+    },
+    [skillFieldOptions, runRemote],
+  )
+  const removeSkillFieldOption = useCallback(
+    (name: string) => {
+      const next = skillFieldOptions.filter((f) => f !== name)
+      setSkillFieldOptions(next)
+      if (isSettingsConfigured)
+        runRemote(remoteApi.updateSetting('skill_field_options', next.join(',')))
+      setSkillFieldSkillsState((prev) => {
+        if (!(name in prev)) return prev
+        const nextSkills = { ...prev }
+        delete nextSkills[name]
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('skill_field_skills', JSON.stringify(nextSkills)))
+        return nextSkills
+      })
+    },
+    [skillFieldOptions, runRemote],
+  )
+  const setSkillFieldSkills = useCallback(
+    (field: string, skills: string[]) => {
+      setSkillFieldSkillsState((prev) => {
+        const next = { ...prev, [field]: skills }
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('skill_field_skills', JSON.stringify(next)))
+        return next
+      })
+    },
+    [runRemote],
+  )
+  // 数字は仮 — 分野取得の判定に使う保有率のしきい値（0〜1）
+  const setSkillFieldThreshold = useCallback(
+    (threshold: number) => {
+      const v = Math.min(1, Math.max(0, threshold))
+      setSkillFieldThresholdState(v)
+      if (isSettingsConfigured) runRemote(remoteApi.updateSetting('skill_field_threshold', String(v)))
     },
     [runRemote],
   )
@@ -2144,6 +2295,13 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     recurringRules,
     jobRequirements,
     setJobRequirements,
+    skillFieldOptions,
+    addSkillFieldOption,
+    removeSkillFieldOption,
+    skillFieldSkills,
+    setSkillFieldSkills,
+    skillFieldThreshold,
+    setSkillFieldThreshold,
     setDiscordWebhookUrl,
     addRecurringRule,
     removeRecurringRule,

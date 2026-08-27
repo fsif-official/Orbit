@@ -30,6 +30,13 @@ export function AdminTags() {
     setRolePermissions,
     jobRequirements,
     setJobRequirements,
+    skillFieldOptions,
+    addSkillFieldOption,
+    removeSkillFieldOption,
+    skillFieldSkills,
+    setSkillFieldSkills,
+    skillFieldThreshold,
+    setSkillFieldThreshold,
     setDiscordWebhookUrl,
   } = useOrbit()
   const toast = useToast()
@@ -55,6 +62,19 @@ export function AdminTags() {
           onAdd={addSkillOption}
           onRemove={removeSkillOption}
         />
+        <div>
+          <TagGroup
+            title="要求分野"
+            options={skillFieldOptions}
+            onAdd={addSkillFieldOption}
+            onRemove={removeSkillFieldOption}
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            要求スキルの上位グルーピングです（例：デザイン、営業、AI活用）。メンバーに直接
+            割り当てるのは要求スキルのみで、分野は下の「要求分野の構成」で紐づけたスキルの
+            保有率から自動的に判定されます。
+          </p>
+        </div>
         <TagGroup
           title="カテゴリ"
           options={categoryOptions}
@@ -74,6 +94,47 @@ export function AdminTags() {
             自動的に「一般」に戻ります。「一般」以外のレベルはすべて管理者画面へのアクセス権を持ちます。
           </p>
         </div>
+      </div>
+
+      <div className="mt-6 rounded-lg border border-border bg-card p-4">
+        <SectionLabel>要求分野の構成</SectionLabel>
+        <p className="mt-1 text-xs text-muted-foreground">
+          各分野に属する要求スキルを設定します。メンバーがその分野のスキルをしきい値以上
+          保有すると、分野を「取得」したものとして個人ページの人材育成タブに表示されます。
+        </p>
+        <div className="mt-3 flex items-center gap-2">
+          <label className="text-xs font-medium text-muted-foreground" htmlFor="skill-field-threshold">
+            取得のしきい値
+          </label>
+          <input
+            id="skill-field-threshold"
+            type="number"
+            min={0}
+            max={100}
+            step={5}
+            value={Math.round(skillFieldThreshold * 100)}
+            onChange={(e) => setSkillFieldThreshold(Number(e.target.value) / 100)}
+            className="h-8 w-20 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary"
+          />
+          <span className="text-xs text-muted-foreground">%（数字は仮の初期値です）</span>
+        </div>
+        {skillFieldOptions.length === 0 ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            先に「要求分野」の選択肢を追加してください。
+          </p>
+        ) : (
+          <div className="mt-4 flex flex-col gap-4">
+            {skillFieldOptions.map((field) => (
+              <JobRequirementsRow
+                key={field}
+                role={field}
+                skills={skillFieldSkills[field] ?? []}
+                options={skillOptions}
+                onChange={(next) => setSkillFieldSkills(field, next)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="mt-6 rounded-lg border border-border bg-card p-4">

@@ -238,15 +238,17 @@ localStorageにのみ保存され、他の人の画面には反映されませ�
 3. Settingsシートも他の3シートと同じ手順で「ウェブに公開」し、CSV URLを取得
 4. リポジトリの Secrets に `SETTINGS_CSV` としてこのURLを追加
 
-設定すると、要求スキル・カテゴリ・権限レベル・権限レベルごとの管理画面表示範囲・
-プロジェクトテンプレート・業務テンプレート・定期タスクルール・ポジション要件の
-追加や変更がその場でSettingsシートに書き込まれ（`key` 列は `skill_options` /
-`category_options` / `role_levels` / `role_permissions` / `project_templates` /
-`task_set_templates` / `recurring_rules` / `job_requirements`、`value` 列はカンマ区切り
-文字列、`role_permissions` / `project_templates` / `task_set_templates` /
-`recurring_rules` / `job_requirements` のみJSON文字列）、次回以降は誰の画面を開いても
-そこから読み込まれます。未設定の場合はこれまで通りブラウザごとのlocalStorageに
-フォールバックし、何も壊れません。
+設定すると、要求スキル・要求分野・カテゴリ・権限レベル・権限レベルごとの管理画面
+表示範囲・プロジェクトテンプレート・業務テンプレート・定期タスクルール・
+ポジション要件・要求分野の構成の追加や変更がその場でSettingsシートに書き込まれ
+（`key` 列は `skill_options` / `skill_field_options` / `category_options` /
+`role_levels` / `role_permissions` / `project_templates` / `task_set_templates` /
+`recurring_rules` / `job_requirements` / `skill_field_skills` / `skill_field_threshold`、
+`value` 列はカンマ区切り文字列、`role_permissions` / `project_templates` /
+`task_set_templates` / `recurring_rules` / `job_requirements` / `skill_field_skills`
+のみJSON文字列、`skill_field_threshold` のみ0〜1の数値文字列）、次回以降は誰の画面を
+開いてもそこから読み込まれます。未設定の場合はこれまで通りブラウザごとの
+localStorageにフォールバックし、何も壊れません。
 
 > **注意**: Discord Webhook URL（次の「4.7」）は、上と同じ仕組みには**あえて
 > 乗せていません**。Settingsシートは他の3シートと同様に「ウェブに公開」の

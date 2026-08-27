@@ -337,6 +337,10 @@ export interface RemoteSettings {
   recurringRules: RecurringTaskRule[]
   // item 17: ポジション要件 — jobType (role level string) -> required skills
   jobRequirements: Record<string, string[]>
+  // 要求分野: field name pool + field -> constituent skills + acquisition threshold
+  skillFieldOptions: string[]
+  skillFieldSkills: Record<string, string[]>
+  skillFieldThreshold: number | null
 }
 
 // Reads the optional "Settings" sheet (key,value rows) — see
@@ -381,6 +385,15 @@ export async function fetchSettings(): Promise<RemoteSettings> {
   } catch {
     // malformed JSON in the sheet — fall back to empty rather than throwing
   }
+  let skillFieldSkills: Record<string, string[]> = {}
+  try {
+    const raw = byKey.get('skill_field_skills')
+    if (raw) skillFieldSkills = JSON.parse(raw)
+  } catch {
+    // malformed JSON in the sheet — fall back to empty rather than throwing
+  }
+  const thresholdRaw = byKey.get('skill_field_threshold')
+  const skillFieldThreshold = thresholdRaw ? Number(thresholdRaw) : null
   return {
     skillOptions: splitTags(byKey.get('skill_options')),
     categoryOptions: splitTags(byKey.get('category_options')),
@@ -390,6 +403,9 @@ export async function fetchSettings(): Promise<RemoteSettings> {
     taskSetTemplates,
     recurringRules,
     jobRequirements,
+    skillFieldOptions: splitTags(byKey.get('skill_field_options')),
+    skillFieldSkills,
+    skillFieldThreshold: Number.isFinite(skillFieldThreshold) ? skillFieldThreshold : null,
   }
 }
 
