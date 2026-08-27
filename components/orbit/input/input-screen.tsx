@@ -8,7 +8,7 @@ import { useToast } from '../toast'
 import { Modal } from '../modal'
 import { buildDemoParse, DEMO_INPUT } from '@/lib/orbit/seed'
 import { DEPARTMENTS, DIFFICULTY_LABEL, PRIORITIES } from '@/lib/orbit/types'
-import type { ParsedTask, Department, Difficulty, Priority, TaskInput } from '@/lib/orbit/types'
+import type { ParsedTask, Department, Difficulty, Priority, Project, TaskInput } from '@/lib/orbit/types'
 import { ParsedTaskCard } from './parsed-task-card'
 import { OrbitMark, SectionLabel, StatusBadge } from '../primitives'
 import { formatDateTime } from '@/lib/orbit/utils'
@@ -70,7 +70,7 @@ export function InputScreen() {
     setTimeout(() => {
       // Fake AI: demo input yields the predefined result; anything else
       // yields a light heuristic split by lines. Empty-ish -> fail.
-      const result = parseText(text)
+      const result = parseText(text, projects)
       if (result.length === 0) {
         setParseFailed(true)
         setPhase('input')
@@ -495,7 +495,7 @@ export function InputScreen() {
 }
 
 // Fake parser: demo string → predefined; otherwise line-based heuristic.
-function parseText(text: string): ParsedTask[] {
+function parseText(text: string, projects: Project[]): ParsedTask[] {
   const normalized = text.replace(/\s+/g, '')
   const demoNorm = DEMO_INPUT.replace(/\s+/g, '')
   if (normalized === demoNorm || normalized.includes('イベント用のポスター')) {
@@ -533,7 +533,7 @@ function parseText(text: string): ParsedTask[] {
     return {
       id: `parsed-${Math.random().toString(36).slice(2, 9)}`,
       name,
-      projectId: 'p-cosmo-base',
+      projectId: projects[0]?.id ?? '',
       department,
       deadline,
       // left for the user to pick from the おすすめ chips / dropdown in
