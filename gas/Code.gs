@@ -97,6 +97,9 @@ function doPost(e) {
       case 'approveTask':
         result = updateTaskFields(body.taskId, { approval_status: '承認済み' })
         break
+      case 'removeTask':
+        result = removeTask(body.taskId)
+        break
       case 'createProject':
         result = createProject(body.name, body.description, body.type)
         break
@@ -651,6 +654,49 @@ function removeProject(projectId) {
   }
 
   return { removed: projectId }
+}
+
+// Deletes a task outright — distinct from the automatic archive that
+// happens client-side 14 days after completion (see visibleTasks/
+// archivedTasks in lib/orbit/store.tsx), which just hides it, not this,
+// which removes the row. Any other task that listed this one in
+// depends_on_ids has that reference scrubbed so 依存関係 doesn't point at
+// a dead id.
+function removeTask(taskId) {
+  var tasks = getSheet(SHEET_TASKS)
+  var taskHeaders = headerRow(tasks)
+  var idCol = taskHeaders.indexOf('id') + 1
+  var lastRow = tasks.getLastRow()
+  var ids = idCol > 0 ? tasks.getRange(2, idCol, Math.max(lastRow - 1, 0), 1).getValues() : []
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === String(taskId)) {
+      tasks.deleteRow(i + 2)
+      break
+    }
+  }
+
+  var dependsCol = taskHeaders.indexOf('depends_on_ids') + 1
+  if (dependsCol > 0) {
+    var afterLastRow = tasks.getLastRow()
+    var dependsValues =
+      afterLastRow > 1 ? tasks.getRange(2, dependsCol, afterLastRow - 1, 1).getValues() : []
+    for (var j = 0; j < dependsValues.length; j++) {
+      var list = String(dependsValues[j][0] || '')
+        .split(',')
+        .map(function (s) {
+          return s.trim()
+        })
+        .filter(Boolean)
+      if (list.indexOf(String(taskId)) !== -1) {
+        var next = list.filter(function (id) {
+          return id !== String(taskId)
+        })
+        tasks.getRange(j + 2, dependsCol).setValue(next.join(','))
+      }
+    }
+  }
+
+  return { removed: taskId }
 }
 
 // ---- Members ----------------------------------------------------------------

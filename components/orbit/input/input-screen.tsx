@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
@@ -11,7 +11,7 @@ import { DEPARTMENTS, DIFFICULTY_LABEL, PRIORITIES } from '@/lib/orbit/types'
 import type { ParsedTask, Department, Difficulty, Priority, Project, TaskInput } from '@/lib/orbit/types'
 import { ParsedTaskCard } from './parsed-task-card'
 import { OrbitMark, SectionLabel, StatusBadge } from '../primitives'
-import { formatDateTime } from '@/lib/orbit/utils'
+import { formatDateTime, findSimilarTasks } from '@/lib/orbit/utils'
 import { ArrowRight, History, Sparkles, Trash2, TriangleAlert, Wand2, X } from 'lucide-react'
 
 type Phase = 'input' | 'parsing' | 'result'
@@ -83,8 +83,22 @@ export function InputScreen() {
       }
       setParsed(result)
       setPhase('result')
+      const dupCount = result.filter((p) => findSimilarTasks(p, tasks).length > 0).length
+      if (dupCount > 0) {
+        toast(`${dupCount}件のタスクに似た既存タスクがあります。内容をご確認ください`)
+      }
     }, 1600)
   }
+
+  // 解析結果のうち、既存タスクと似ているものだけを抜き出したもの。各カードにも
+  // 同じ警告が出るが、件数が多いとスクロールして見落とすため、ここでもまとめて示す
+  const duplicateFlags = useMemo(
+    () =>
+      parsed
+        .map((p) => ({ task: p, similar: findSimilarTasks(p, tasks) }))
+        .filter((x) => x.similar.length > 0),
+    [parsed, tasks],
+  )
 
   const approvedCount = parsed.filter((p) => p.approved).length
   const allSelected = parsed.length > 0 && parsed.every((p) => selectedIds.has(p.id))
@@ -300,6 +314,25 @@ export function InputScreen() {
               内容を確認し、必要であれば修正してください。承認したタスクだけ登録されます。
             </p>
           </div>
+
+          {duplicateFlags.length > 0 && (
+            <div className="mb-4 rounded-xl border border-warning/30 bg-warning-muted px-4 py-3">
+              <div className="flex items-center gap-1.5 text-sm font-medium text-warning">
+                <TriangleAlert className="size-4 shrink-0" />
+                {duplicateFlags.length}件のタスクに似た既存タスクがあります
+              </div>
+              <ul className="mt-1.5 flex flex-col gap-1">
+                {duplicateFlags.map(({ task, similar }) => (
+                  <li key={task.id} className="text-xs text-muted-foreground">
+                    「{task.name}」→ {similar.map(({ task: s }) => s.name).join('、')}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                各カードの詳細も合わせてご確認ください。
+              </p>
+            </div>
+          )}
 
           {parsed.length > 0 && (
             <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">

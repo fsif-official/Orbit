@@ -184,6 +184,7 @@ interface OrbitContextValue extends OrbitState {
   updateWill: (memberId: string, will: string[]) => void
   updateJudgment: (memberId: string, judgment: string[]) => void
   approveTask: (id: string) => void
+  removeTask: (id: string) => void
   addProject: (name: string, description: string, type?: string) => void
   removeProject: (projectId: string) => void
   updateProjectMembers: (projectId: string, memberIds: string[]) => void
@@ -1304,6 +1305,26 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  // distinct from the automatic archive (14 days after completion) — this
+  // is a permanent, manual delete. Any other task that lists this one in
+  // dependsOnIds has that reference scrubbed so 依存関係 doesn't point at a
+  // dead id.
+  const removeTask = useCallback(
+    (id: string) => {
+      setTasks((prev) =>
+        prev
+          .filter((t) => t.id !== id)
+          .map((t) =>
+            t.dependsOnIds?.includes(id)
+              ? { ...t, dependsOnIds: t.dependsOnIds.filter((depId) => depId !== id) }
+              : t,
+          ),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.removeTask(id))
+    },
+    [runRemote],
+  )
+
   const addProject = useCallback(
     (name: string, description: string, type?: string) => {
       const tempProjectId = `p-${Math.random().toString(36).slice(2, 9)}`
@@ -2137,6 +2158,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateWill,
     updateJudgment,
     approveTask,
+    removeTask,
     addProject,
     removeProject,
     updateProjectMembers,
