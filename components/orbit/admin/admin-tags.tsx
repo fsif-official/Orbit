@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
+import { isRemoteConfigured } from '@/lib/orbit/remote'
 import { useToast } from '@/components/orbit/toast'
 import { Tag, SectionLabel } from '@/components/orbit/primitives'
 import { Button } from '@/components/ui/button'
@@ -127,6 +128,12 @@ export function AdminTags() {
           スプレッドシートには保存せず、Apps Script側だけが読める場所に保管しています
           （詳しくは gas/README.md を参照）。
         </p>
+        {!isRemoteConfigured && (
+          <p className="mt-1 text-xs text-warning">
+            スプレッドシート連携（GASのWeb App URL）が未設定のため、ここで保存しても
+            どこにも反映されません。
+          </p>
+        )}
         <div className="mt-3 flex items-center gap-2">
           <input
             value={webhookDraft}
@@ -136,7 +143,7 @@ export function AdminTags() {
           />
           <Button
             className="h-9 shrink-0"
-            disabled={!webhookDraft.trim()}
+            disabled={!webhookDraft.trim() || !isRemoteConfigured}
             onClick={() => {
               setDiscordWebhookUrl(webhookDraft.trim())
               setWebhookDraft('')

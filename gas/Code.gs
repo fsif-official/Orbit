@@ -944,29 +944,37 @@ function generateRecurringTasks() {
     var due = rule.frequency === 'weekly' ? rule.dayOfWeek === dow : rule.dayOfMonth === dom
     if (!due) return
 
-    var deadline = null
-    if (rule.dueInDays != null) {
-      var d = new Date(now.getTime() + rule.dueInDays * 86400000)
-      deadline = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    // isolate each rule — one bad rule (e.g. a stale projectId, a transient
+    // Sheets error) must not abort the whole daily trigger and skip both
+    // the remaining rules' lastGeneratedDate writes and the overdue-task
+    // Discord sweep that runs after this function in dailyMaintenance()
+    try {
+      var deadline = null
+      if (rule.dueInDays != null) {
+        var d = new Date(now.getTime() + rule.dueInDays * 86400000)
+        deadline = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+      }
+      // same payload shape/columns the client sends for a recurring-generated
+      // task (see store.tsx) — reuses createTasks() so both paths stay in sync
+      createTasks([
+        {
+          tempId: 'recurring-' + rule.id,
+          title: rule.name,
+          projectId: rule.projectId,
+          department: rule.department,
+          category: rule.category,
+          skills: rule.skills,
+          difficulty: rule.difficulty,
+          priority: rule.priority,
+          deadline: deadline,
+          pendingApproval: false,
+        },
+      ])
+      rule.lastGeneratedDate = today
+      changed = true
+    } catch (err) {
+      // best-effort — skip this rule today, try again on the next run
     }
-    // same payload shape/columns the client sends for a recurring-generated
-    // task (see store.tsx) — reuses createTasks() so both paths stay in sync
-    createTasks([
-      {
-        tempId: 'recurring-' + rule.id,
-        title: rule.name,
-        projectId: rule.projectId,
-        department: rule.department,
-        category: rule.category,
-        skills: rule.skills,
-        difficulty: rule.difficulty,
-        priority: rule.priority,
-        deadline: deadline,
-        pendingApproval: false,
-      },
-    ])
-    rule.lastGeneratedDate = today
-    changed = true
   })
 
   if (changed) updateSetting(SETTINGS_KEY_RECURRING_RULES, JSON.stringify(rules))
@@ -986,8 +994,14 @@ function setupDailyTrigger() {
 }
 
 // The function the trigger installed by setupDailyTrigger() actually calls.
+// Each step is isolated so a failure in one (e.g. generateRecurringTasks
+// throwing on a malformed rule) can't also skip the other.
 function dailyMaintenance() {
-  generateRecurringTasks()
+  try {
+    generateRecurringTasks()
+  } catch (err) {
+    // best-effort — still run the overdue sweep below
+  }
   notifyOverdueTasksToDiscord()
 }
 
@@ -1007,11 +1021,24 @@ function getDiscordWebhookUrl() {
   return PropertiesService.getScriptProperties().getProperty(DISCORD_WEBHOOK_PROPERTY_KEY) || ''
 }
 
+// Changing this is otherwise invisible (write-only, see the block comment
+// above) — email the usual admin recipients so a change is at least
+// noticed/auditable, the same way every other admin-only action in this
+// file is observable through its effect on the sheet.
 function updateDiscordWebhookUrl(url) {
   PropertiesService.getScriptProperties().setProperty(DISCORD_WEBHOOK_PROPERTY_KEY, url || '')
+  notifyAdmins(
+    '[Orbit] Discord Webhook URLが変更されました',
+    (url ? 'Discord Webhook URLが更新されました。' : 'Discord Webhook URLが削除されました。') +
+      '\n\n心当たりがない場合はAdmin → Tagsから確認してください。',
+  )
   return { updated: true }
 }
 
+// Task titles are free text any member can set (INPUT screen, or the admin
+// edit form) — posted verbatim as Discord message content, `allowed_mentions`
+// must suppress mention parsing so a title like "@everyone" can't mass-ping
+// the configured channel.
 function sendDiscordMessage(content) {
   try {
     var url = getDiscordWebhookUrl()
@@ -1019,12 +1046,21 @@ function sendDiscordMessage(content) {
     UrlFetchApp.fetch(url, {
       method: 'post',
       contentType: 'application/json',
-      payload: JSON.stringify({ content: content }),
+      payload: JSON.stringify({ content: content, allowed_mentions: { parse: [] } }),
       muteHttpExceptions: true,
     })
   } catch (err) {
     // swallow — Discord delivery is best-effort
   }
+}
+
+// A cell written as a plain 'yyyy-MM-dd' string can come back from
+// getValues() as a Date object instead (Sheets auto-converts date-like
+// strings in an unformatted column) — normalize either shape to
+// 'yyyy-MM-dd' so string comparisons against todayStr() stay correct.
+function cellDateStr(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+  return String(v || '')
 }
 
 // Daily sweep (see dailyMaintenance/setupDailyTrigger above) — posts one
@@ -1043,14 +1079,16 @@ function notifyOverdueTasksToDiscord() {
     if (lastRow < 2) return
     var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues()
     var today = todayStr()
-    var overdue = rows.filter(function (r) {
-      var due = String(r[dueCol] || '')
-      var status = String(r[statusCol] || '')
-      return due && due < today && status !== '完了'
-    })
+    var overdue = rows
+      .map(function (r) {
+        return { title: r[titleCol], due: cellDateStr(r[dueCol]), status: String(r[statusCol] || '') }
+      })
+      .filter(function (t) {
+        return t.due && t.due < today && t.status !== '完了'
+      })
     if (overdue.length === 0) return
-    var lines = overdue.map(function (r) {
-      return '・' + r[titleCol] + '（期限: ' + r[dueCol] + '）'
+    var lines = overdue.map(function (t) {
+      return '・' + t.title + '（期限: ' + t.due + '）'
     })
     sendDiscordMessage('⚠️ 期限超過タスクが' + overdue.length + '件あります。\n' + lines.join('\n'))
   } catch (err) {

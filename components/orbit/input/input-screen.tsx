@@ -64,6 +64,11 @@ export function InputScreen() {
       setEmptyError(true)
       return
     }
+    // プロジェクトが1つも登録されていないと、解析結果の project_id が
+    // 空文字のまま登録されてしまう（docs/onboarding.md はプロジェクト登録を
+    // 先に済ませる想定だが、念のためここでも防ぐ）。バナー自体は
+    // projects.length を直接見て表示するので、ここでは解析を止めるだけでよい
+    if (projects.length === 0) return
     setEmptyError(false)
     setParseFailed(false)
     setPhase('parsing')
@@ -163,7 +168,7 @@ export function InputScreen() {
                 )}
                 <Button
                   onClick={handleParse}
-                  disabled={phase === 'parsing'}
+                  disabled={phase === 'parsing' || projects.length === 0}
                   className="h-9 px-4"
                 >
                   {phase === 'parsing' ? (
@@ -186,6 +191,12 @@ export function InputScreen() {
             <p className="mt-2.5 flex items-center gap-1.5 text-sm text-destructive">
               <TriangleAlert className="size-4" />
               タスク内容を入力してください
+            </p>
+          )}
+          {projects.length === 0 && (
+            <p className="mt-2.5 flex items-center gap-1.5 text-sm text-destructive">
+              <TriangleAlert className="size-4" />
+              プロジェクトが1件も登録されていません。先にAdmin → Projectsから登録してください。
             </p>
           )}
           {parseFailed && (
