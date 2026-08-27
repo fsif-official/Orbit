@@ -17,7 +17,14 @@ export function isAdminRole(role: Role): boolean {
 
 // admin-screen sidebar sections — used by store.tsx's rolePermissions to
 // gate which sections each non-top admin role level can see (Admin → Tags)
-export type AdminSection = 'dashboard' | 'assignments' | 'approvals' | 'projects' | 'members' | 'tags'
+export type AdminSection =
+  | 'dashboard'
+  | 'assignments'
+  | 'approvals'
+  | 'projects'
+  | 'members'
+  | 'tags'
+  | 'analytics'
 
 export const ADMIN_SECTIONS: { key: AdminSection; label: string }[] = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -25,6 +32,7 @@ export const ADMIN_SECTIONS: { key: AdminSection; label: string }[] = [
   { key: 'assignments', label: 'Assignments' },
   { key: 'projects', label: 'Projects' },
   { key: 'members', label: 'Members' },
+  { key: 'analytics', label: 'Analytics' },
   { key: 'tags', label: 'Tags' },
 ]
 
@@ -124,10 +132,11 @@ export interface Member {
   // ---- talent-management fields (タレントマネジメント) --------------------
   // 人材DB／スキル管理／人材検索／育成・キャリア — wired end-to-end (store.tsx
   // actions, remote.ts mapping, gas/Code.gs columns) and surfaced on the
-  // person page's 経歴・キャリア tab and Admin → Membersの人材検索フィルタ.
-  // 分析ダッシュボード（人員構成・評価分布・スキル分布）was explicitly
-  // deferred — see JobTypeSkillRequirement below for the org-wide (not
-  // per-member) job-position requirement config, used by 人材育成タブ.
+  // person page's 経歴・キャリア tab, Admin → Membersの人材検索フィルタ, and
+  // Admin → Analytics (people/skill/evaluation aggregates — see
+  // components/orbit/admin/admin-analytics.tsx). See JobTypeSkillRequirement
+  // below for the org-wide (not per-member) job-position requirement
+  // config, used by 人材育成タブ.
 
   // 人材検索: filterable attributes
   yearsOfExperience?: number
