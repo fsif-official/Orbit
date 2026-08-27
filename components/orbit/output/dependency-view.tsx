@@ -18,11 +18,24 @@ import { useOrbit } from '@/lib/orbit/store'
 import { useToast } from '@/components/orbit/toast'
 import type { Task } from '@/lib/orbit/types'
 import { STATUS_COLOR, STATUS_LABEL } from '@/lib/orbit/types'
-import { DifficultyBadge } from '../primitives'
-import { GitBranch, GripVertical } from 'lucide-react'
+import { Avatar, DifficultyBadge } from '../primitives'
+import { formatDeadline, deadlineLevel } from '@/lib/orbit/utils'
+import { KANBAN_CARD_FIELDS, type KanbanCardField } from './kanban-card'
+import { cn } from '@/lib/utils'
+import { GitBranch, GripVertical, TriangleAlert } from 'lucide-react'
 
 const CARD_W = 220
-const CARD_H = 68
+// カードの高さは表示項目の数に応じて可変（名前+ステータス行は常時表示、
+// プロジェクト/担当者・期限/カテゴリ・難易度は選んだ項目に応じて行が増える）
+const BASE_CARD_H = 40
+const ROW_H = 20
+function cardHeightFor(fields: Set<KanbanCardField>): number {
+  let extraRows = 0
+  if (fields.has('project')) extraRows++
+  if (fields.has('assignee') || fields.has('deadline')) extraRows++
+  if (fields.has('category') || fields.has('difficulty')) extraRows++
+  return BASE_CARD_H + extraRows * ROW_H
+}
 const COL_GAP = 72
 const ROW_GAP = 16
 const LONG_PRESS_MS = 450
@@ -41,12 +54,22 @@ interface PressState {
 export function DependencyView({
   tasks,
   onOpenTask,
+  fields = new Set(KANBAN_CARD_FIELDS),
 }: {
   tasks: Task[]
   onOpenTask: (id: string) => void
+  fields?: Set<KanbanCardField>
 }) {
-  const { updateDependsOn } = useOrbit()
+  const { updateDependsOn, getMember, getProject } = useOrbit()
   const toast = useToast()
+  const cardH = cardHeightFor(fields)
+  const showProject = fields.has('project')
+  const showAssignee = fields.has('assignee')
+  const showDeadline = fields.has('deadline')
+  const showCategory = fields.has('category')
+  const showDifficulty = fields.has('difficulty')
+  const showMetaRow = showAssignee || showDeadline
+  const showBottomRow = showCategory || showDifficulty
   const canvasRef = useRef<HTMLDivElement>(null)
   const pressRef = useRef<PressState | null>(null)
   const [drag, setDrag] = useState<{ fromId: string; x: number; y: number } | null>(null)
@@ -97,16 +120,16 @@ export function DependencyView({
         list.forEach((t, i) => {
           pos.set(t.id, {
             x: lvl * (CARD_W + COL_GAP),
-            y: i * (CARD_H + ROW_GAP),
+            y: i * (cardH + ROW_GAP),
           })
         })
       })
     return { columns: cols, positions: pos, maxRows: rows }
-  }, [tasks, levels])
+  }, [tasks, levels, cardH])
 
   const maxLevel = columns.size > 0 ? Math.max(...columns.keys()) : 0
   const svgWidth = (maxLevel + 1) * (CARD_W + COL_GAP)
-  const svgHeight = Math.max(maxRows, 1) * (CARD_H + ROW_GAP)
+  const svgHeight = Math.max(maxRows, 1) * (cardH + ROW_GAP)
 
   const edges = useMemo(() => {
     const out: { from: string; to: string }[] = []
@@ -272,9 +295,9 @@ export function DependencyView({
               const b = positions.get(to)
               if (!a || !b) return null
               const x1 = a.x + CARD_W
-              const y1 = a.y + CARD_H / 2
+              const y1 = a.y + cardH / 2
               const x2 = b.x
-              const y2 = b.y + CARD_H / 2
+              const y2 = b.y + cardH / 2
               const midX = (x1 + x2) / 2
               return (
                 <path
@@ -310,7 +333,7 @@ export function DependencyView({
             >
               <line
                 x1={dragFromPos.x + CARD_W / 2}
-                y1={dragFromPos.y + CARD_H / 2}
+                y1={dragFromPos.y + cardH / 2}
                 x2={drag.x}
                 y2={drag.y}
                 stroke="var(--primary)"
@@ -326,6 +349,12 @@ export function DependencyView({
             if (!p) return null
             const isDragSource = drag?.fromId === t.id
             const isDropTarget = !!drag && dropTargetId === t.id && t.id !== drag.fromId
+            const project = getProject(t.projectId)
+            const assignees = t.assigneeIds.map((id) => getMember(id)).filter(Boolean) as Array<
+              NonNullable<ReturnType<typeof getMember>>
+            >
+            const deadline = deadlineLevel(t)
+            const urgent = deadline.level === 'overdue' || deadline.level === 'today'
             return (
               <div
                 key={t.id}
@@ -342,25 +371,72 @@ export function DependencyView({
                     onOpenTask(t.id)
                   }
                 }}
-                className={`absolute flex cursor-grab select-none flex-col justify-between rounded-lg border bg-card px-3 py-2 text-left shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-colors ${
+                className={`absolute flex cursor-grab select-none flex-col justify-center gap-1 rounded-lg border bg-card px-3 py-2 text-left shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-colors ${
                   isDropTarget
                     ? 'border-primary ring-2 ring-primary'
                     : 'border-border hover:border-border-strong'
                 } ${isDragSource ? 'opacity-50' : ''}`}
-                style={{ left: p.x, top: p.y, width: CARD_W, height: CARD_H, touchAction: 'none' }}
+                style={{ left: p.x, top: p.y, width: CARD_W, height: cardH, touchAction: 'none' }}
               >
                 <GripVertical className="pointer-events-none absolute right-1 top-1 size-3 text-muted-foreground/40" />
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ background: STATUS_COLOR[t.status] }}
-                  />
-                  <span className="truncate text-sm font-medium">{t.name}</span>
+                <div className="flex items-center justify-between gap-1.5">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ background: STATUS_COLOR[t.status] }}
+                    />
+                    <span className="truncate text-sm font-medium">{t.name}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                    {STATUS_LABEL[t.status]}
+                  </span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-muted-foreground">{STATUS_LABEL[t.status]}</span>
-                  <DifficultyBadge difficulty={t.difficulty} />
-                </div>
+                {showProject && (
+                  <div className="truncate text-[11px] text-muted-foreground">{project?.name}</div>
+                )}
+                {showMetaRow && (
+                  <div className="flex items-center justify-between gap-2">
+                    {showAssignee ? (
+                      assignees.length > 0 ? (
+                        <div className="flex min-w-0 items-center gap-1">
+                          <div className="flex shrink-0 -space-x-1.5">
+                            {assignees.slice(0, 3).map((m) => (
+                              <span key={m.id} className="rounded-full ring-2 ring-card">
+                                <Avatar member={m} size={16} />
+                              </span>
+                            ))}
+                          </div>
+                          <span className="truncate text-[11px] text-muted-foreground">
+                            {assignees.map((m) => m.displayName || m.name).join('、')}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">未アサイン</span>
+                      )
+                    ) : (
+                      <span />
+                    )}
+                    {showDeadline && (
+                      <span
+                        className={cn(
+                          'inline-flex shrink-0 items-center gap-1 text-[11px]',
+                          urgent ? 'font-medium text-destructive' : 'text-muted-foreground',
+                        )}
+                      >
+                        {urgent && <TriangleAlert className="size-3" />}
+                        {formatDeadline(t.deadline)}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {showBottomRow && (
+                  <div className="flex items-center justify-between gap-2">
+                    {showCategory && (
+                      <span className="truncate text-[11px] text-muted-foreground">{t.category}</span>
+                    )}
+                    {showDifficulty && <DifficultyBadge difficulty={t.difficulty} />}
+                  </div>
+                )}
               </div>
             )
           })}

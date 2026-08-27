@@ -17,7 +17,7 @@ import type {
   TaskSetTemplate,
   TaskSetTemplateItem,
 } from '@/lib/orbit/types'
-import { Check, LayoutTemplate, Plus, Repeat, Trash2, UserCog, UserPlus } from 'lucide-react'
+import { Check, LayoutTemplate, Pencil, Plus, Repeat, Trash2, UserCog, UserPlus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function AdminProjects() {
@@ -29,6 +29,7 @@ export function AdminProjects() {
     removeProject,
     updateProjectMembers,
     updateProjectOwner,
+    updateProjectDetails,
     getProjectMembers,
     projectTypes,
     projectTemplates,
@@ -50,6 +51,8 @@ export function AdminProjects() {
   const [applyingTo, setApplyingTo] = useState<Project | null>(null)
   const [managingMembersOf, setManagingMembersOf] = useState<Project | null>(null)
   const [managingOwnerOf, setManagingOwnerOf] = useState<Project | null>(null)
+  const [editingDetailsOf, setEditingDetailsOf] = useState<Project | null>(null)
+  const [detailsDraft, setDetailsDraft] = useState({ description: '', type: '' })
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [type, setType] = useState('')
@@ -151,7 +154,22 @@ export function AdminProjects() {
                   <td className="px-4 py-3">
                     {p.type ? <Tag>{p.type}</Tag> : <span className="text-muted-foreground">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{p.description}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <span className="min-w-0 flex-1 truncate">{p.description || '—'}</span>
+                      <button
+                        onClick={() => {
+                          setDetailsDraft({ description: p.description, type: p.type ?? '' })
+                          setEditingDetailsOf(p)
+                        }}
+                        className="shrink-0 text-muted-foreground hover:text-foreground"
+                        aria-label="概要・種類を編集"
+                        title="概要・種類を編集"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
                       {pm.length > 0 ? (
@@ -467,6 +485,60 @@ export function AdminProjects() {
               </button>
             )
           })}
+        </div>
+      </Modal>
+
+      <Modal open={!!editingDetailsOf} onClose={() => setEditingDetailsOf(null)}>
+        <h2 className="text-base font-semibold">「{editingDetailsOf?.name}」の概要・種類を編集</h2>
+        <div className="mt-3 flex flex-col gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">概要</label>
+            <input
+              value={detailsDraft.description}
+              onChange={(e) => setDetailsDraft({ ...detailsDraft, description: e.target.value })}
+              placeholder="任意"
+              className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">種類</label>
+            <select
+              value={detailsDraft.type}
+              onChange={(e) => setDetailsDraft({ ...detailsDraft, type: e.target.value })}
+              className="h-9 w-full cursor-pointer rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+            >
+              <option value="">未設定</option>
+              {projectTypes.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              種類を変更しても、既存タスクやこのプロジェクトには影響しません（新規作成時のテンプレート自動追加のみに使われます）。
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" className="h-9" onClick={() => setEditingDetailsOf(null)}>
+            キャンセル
+          </Button>
+          <Button
+            className="h-9"
+            onClick={() => {
+              if (editingDetailsOf) {
+                updateProjectDetails(
+                  editingDetailsOf.id,
+                  detailsDraft.description.trim(),
+                  detailsDraft.type || undefined,
+                )
+                toast('プロジェクトを更新しました')
+              }
+              setEditingDetailsOf(null)
+            }}
+          >
+            保存
+          </Button>
         </div>
       </Modal>
 

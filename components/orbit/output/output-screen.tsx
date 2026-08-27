@@ -202,7 +202,8 @@ export function OutputScreen() {
             </Seg>
           </Segment>
 
-          {(target === 'all' || target === 'mine') && (view === 'workflow' || view === 'difficulty') && (
+          {(target === 'all' || target === 'mine') &&
+            (view === 'workflow' || view === 'difficulty' || view === 'dependency') && (
             <div className="relative" ref={fieldsRef}>
               <button
                 type="button"
@@ -326,7 +327,7 @@ export function OutputScreen() {
             <DifficultyBoard tasks={filteredTasks} onOpenTask={setOpenTaskId} fields={cardFields} />
           )}
           {(target === 'all' || target === 'mine') && view === 'dependency' && (
-            <DependencyView tasks={filteredTasks} onOpenTask={setOpenTaskId} />
+            <DependencyView tasks={filteredTasks} onOpenTask={setOpenTaskId} fields={cardFields} />
           )}
         </>
       )}
