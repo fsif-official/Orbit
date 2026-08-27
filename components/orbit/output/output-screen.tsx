@@ -19,6 +19,7 @@ import {
   Columns3,
   LayoutList,
   CalendarDays,
+  FolderKanban,
   GaugeCircle,
   GitBranch,
   GripVertical,
@@ -80,6 +81,22 @@ function loadCardFields(userId: string | null | undefined): Set<KanbanCardField>
   }
 }
 
+// 依存関係ツリーはプロジェクトが混在すると見づらくなるので、プロジェクト単位で
+// 表示/非表示を切り替えられるようにしている。これもブラウザごとの個人設定
+function hiddenProjectsKey(userId: string | null | undefined): string {
+  return `orbit-dependency-hidden-projects-${userId ?? 'anon'}`
+}
+function loadHiddenProjects(userId: string | null | undefined): Set<string> {
+  if (typeof window === 'undefined') return new Set()
+  try {
+    const raw = window.localStorage.getItem(hiddenProjectsKey(userId))
+    if (!raw) return new Set()
+    return new Set(JSON.parse(raw) as string[])
+  } catch {
+    return new Set()
+  }
+}
+
 export function OutputScreen() {
   const { visibleTasks, archivedTasks, projects, currentUser } = useOrbit()
   const { go } = useNav()
@@ -98,6 +115,11 @@ export function OutputScreen() {
   const [orderOpen, setOrderOpen] = useState(false)
   const orderRef = useRef<HTMLDivElement>(null)
   const [draggingTarget, setDraggingTarget] = useState<Target | null>(null)
+  const [hiddenProjectIds, setHiddenProjectIds] = useState<Set<string>>(() =>
+    loadHiddenProjects(currentUser?.id),
+  )
+  const [projectVisibilityOpen, setProjectVisibilityOpen] = useState(false)
+  const projectVisibilityRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -106,6 +128,12 @@ export function OutputScreen() {
       }
       if (orderRef.current && !orderRef.current.contains(e.target as Node)) {
         setOrderOpen(false)
+      }
+      if (
+        projectVisibilityRef.current &&
+        !projectVisibilityRef.current.contains(e.target as Node)
+      ) {
+        setProjectVisibilityOpen(false)
       }
     }
     document.addEventListener('mousedown', onClick)
@@ -119,6 +147,20 @@ export function OutputScreen() {
       else next.add(field)
       try {
         window.localStorage.setItem(cardFieldsKey(currentUser?.id), JSON.stringify([...next]))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
+
+  const toggleProjectVisibility = (projectId: string) => {
+    setHiddenProjectIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(projectId)) next.delete(projectId)
+      else next.add(projectId)
+      try {
+        window.localStorage.setItem(hiddenProjectsKey(currentUser?.id), JSON.stringify([...next]))
       } catch {
         /* ignore */
       }
@@ -171,6 +213,12 @@ export function OutputScreen() {
       return true
     })
   }, [target, myTasks, visibleTasks, projectFilter, fromDate, toDate])
+
+  // 依存関係ツリー専用の追加絞り込み（プロジェクト単位の表示/非表示）
+  const dependencyTasks = useMemo(
+    () => filteredTasks.filter((t) => !hiddenProjectIds.has(t.projectId)),
+    [filteredTasks, hiddenProjectIds],
+  )
 
   const hasActiveFilter = !!(projectFilter || fromDate || toDate)
 
@@ -332,6 +380,62 @@ export function OutputScreen() {
             </div>
           )}
 
+          {(target === 'all' || target === 'mine') && view === 'dependency' && (
+            <div className="relative" ref={projectVisibilityRef}>
+              <button
+                type="button"
+                onClick={() => setProjectVisibilityOpen((o) => !o)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
+                aria-expanded={projectVisibilityOpen}
+              >
+                <FolderKanban className="size-3.5" />
+                プロジェクト表示
+                {hiddenProjectIds.size > 0 && (
+                  <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums">
+                    {projects.length - hiddenProjectIds.size}/{projects.length}
+                  </span>
+                )}
+              </button>
+              {projectVisibilityOpen && (
+                <div className="absolute left-0 top-full z-10 mt-1.5 w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg animate-in fade-in slide-in-from-top-1">
+                  <p className="px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                    依存関係に表示するプロジェクト
+                  </p>
+                  <div className="max-h-72 overflow-y-auto orbit-scroll">
+                    {projects.map((p) => {
+                      const checked = !hiddenProjectIds.has(p.id)
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => toggleProjectVisibility(p.id)}
+                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-secondary"
+                        >
+                          <span
+                            className={cn(
+                              'flex size-4 shrink-0 items-center justify-center rounded border',
+                              checked
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-border-strong text-transparent',
+                            )}
+                          >
+                            <Check className="size-3" strokeWidth={3} />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                        </button>
+                      )
+                    })}
+                    {projects.length === 0 && (
+                      <p className="px-2.5 py-1.5 text-xs text-muted-foreground">
+                        プロジェクトがありません
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {(target === 'all' || target === 'mine') && (
             <div className="flex flex-wrap items-center gap-2">
               <select
@@ -412,7 +516,7 @@ export function OutputScreen() {
             <DifficultyBoard tasks={filteredTasks} onOpenTask={setOpenTaskId} fields={cardFields} />
           )}
           {(target === 'all' || target === 'mine') && view === 'dependency' && (
-            <DependencyView tasks={filteredTasks} onOpenTask={setOpenTaskId} fields={cardFields} />
+            <DependencyView tasks={dependencyTasks} onOpenTask={setOpenTaskId} fields={cardFields} />
           )}
         </>
       )}

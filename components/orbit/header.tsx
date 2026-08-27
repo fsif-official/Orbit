@@ -375,7 +375,7 @@ function ModeButton({
       type="button"
       onClick={onClick}
       className={cn(
-        'flex min-w-[136px] flex-col items-center rounded-[7px] px-4 py-1 text-center transition-all',
+        'flex min-w-[204px] flex-col items-center rounded-[7px] px-4 py-1 text-center transition-all',
         active
           ? 'bg-card text-foreground shadow-[0_1px_2px_rgba(16,24,40,0.08)]'
           : 'text-muted-foreground hover:text-foreground',
