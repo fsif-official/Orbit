@@ -5,6 +5,7 @@ import { useToast } from '@/components/orbit/toast'
 import { Avatar, DifficultyBadge, ProjectTag, Tag } from '@/components/orbit/primitives'
 import { Button } from '@/components/ui/button'
 import { findSimilarTasks, formatDeadline } from '@/lib/orbit/utils'
+import { canApproveTask, isEscalatedTask } from '@/lib/orbit/permissions'
 import { Check, FileClock, ShieldCheck, TriangleAlert } from 'lucide-react'
 
 export function AdminApprovals() {
@@ -38,10 +39,10 @@ export function AdminApprovals() {
             const approver = creator?.reportsToId ? getMember(creator.reportsToId) : undefined
             // item 9: 承認ルートの拡張 — 重要/対外公開のタスクは報告先チェーン
             // を飛ばして最上位管理者のみ承認できる（重要度に応じて経路を分岐）
-            const escalated = t.importance === '重要' || t.importance === '対外公開'
+            const escalated = isEscalatedTask(t.importance)
             // 組織体系(reports_to_id)で承認担当が決まっていれば本人のみ承認可能。
             // 未設定なら従来通り管理者なら誰でも承認できる。
-            const canApprove = isFullAdmin || (!escalated && (!approver || approver.id === currentUser?.id))
+            const canApprove = canApproveTask(isFullAdmin, t.importance, approver?.id, currentUser?.id)
             const similar = findSimilarTasks(t, visibleTasks)
             return (
               <div key={t.id} className="rounded-lg border border-border bg-card p-4">
