@@ -19,6 +19,11 @@ var SHEET_TASKS = 'Tasks'
 // option pools and project templates; see gas/README.md. Missing sheet is
 // fine, updateSetting() creates it on first write.
 var SHEET_SETTINGS = 'Settings'
+var SETTINGS_KEY_RECURRING_RULES = 'recurring_rules'
+// NOT a Settings-sheet key (that sheet is published as a public CSV) — this
+// is the PropertiesService key the Discord webhook URL is stored under
+// instead. See getDiscordWebhookUrl()/updateDiscordWebhookUrl() below.
+var DISCORD_WEBHOOK_PROPERTY_KEY = 'discord_webhook_url'
 
 // A member is completing a certain number of same-category tasks and
 // auto-certifying isn't something this file does — that check runs
@@ -206,6 +211,9 @@ function doPost(e) {
         break
       case 'updateSetting':
         result = updateSetting(body.key, body.value)
+        break
+      case 'updateDiscordWebhookUrl':
+        result = updateDiscordWebhookUrl(body.url)
         break
       case 'updateMemberProjects':
         result = updateMemberFields(body.memberId, {
@@ -403,6 +411,7 @@ function notifyReview(taskId) {
       '「' + task.title + '」が確認待ちになりました。\n\nOrbitで確認し、問題なければ「完了」にしてください。',
       reportsToEmails(assigneeIds),
     )
+    sendDiscordMessage('🔔 「' + task.title + '」が確認待ちになりました。')
   } catch (err) {
     // best-effort
   }
@@ -881,4 +890,170 @@ function jsonOutput(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(
     ContentService.MimeType.JSON,
   )
+}
+
+// Reads a single value from the optional Settings sheet (see gas/README.md
+// §4.6) by key. Returns '' when the sheet or the key doesn't exist yet
+// (nothing configured) — every caller below treats that as "feature off".
+function getSettingValue(key) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet()
+  var sheet = ss.getSheetByName(SHEET_SETTINGS)
+  if (!sheet) return ''
+  var headers = headerRow(sheet)
+  var keyCol = headers.indexOf('key')
+  var valueCol = headers.indexOf('value')
+  if (keyCol === -1 || valueCol === -1) return ''
+  var lastRow = sheet.getLastRow()
+  if (lastRow < 2) return ''
+  var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues()
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][keyCol]) === key) return String(rows[i][valueCol] || '')
+  }
+  return ''
+}
+
+// ---- 定期タスクの自動生成（サーバー側・日次トリガー）------------------------
+//
+// RecurringTaskRule (Admin > Projects の定期タスク) is normally checked
+// client-side whenever someone's browser loads the app that day — see
+// lib/orbit/store.tsx. That only fires if somebody happens to open Orbit on
+// the due day. This mirrors the same generation logic server-side, driven
+// by a time-based trigger (see setupDailyTrigger below), so a rule fires
+// even if nobody opens the app. Requires SETTINGS_CSV to be configured
+// (gas/README.md §4.6) — without it, recurring rules only live in each
+// browser's localStorage and this function has nothing to read.
+function generateRecurringTasks() {
+  var raw = getSettingValue(SETTINGS_KEY_RECURRING_RULES)
+  if (!raw) return
+  var rules
+  try {
+    rules = JSON.parse(raw)
+  } catch (err) {
+    return // malformed value — don't let a bad cell break the trigger
+  }
+  if (!rules || rules.length === 0) return
+
+  var now = new Date()
+  var today = todayStr()
+  var dow = now.getDay()
+  var dom = now.getDate()
+  var changed = false
+
+  rules.forEach(function (rule) {
+    if (!rule.active || rule.lastGeneratedDate === today) return
+    var due = rule.frequency === 'weekly' ? rule.dayOfWeek === dow : rule.dayOfMonth === dom
+    if (!due) return
+
+    var deadline = null
+    if (rule.dueInDays != null) {
+      var d = new Date(now.getTime() + rule.dueInDays * 86400000)
+      deadline = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    }
+    // same payload shape/columns the client sends for a recurring-generated
+    // task (see store.tsx) — reuses createTasks() so both paths stay in sync
+    createTasks([
+      {
+        tempId: 'recurring-' + rule.id,
+        title: rule.name,
+        projectId: rule.projectId,
+        department: rule.department,
+        category: rule.category,
+        skills: rule.skills,
+        difficulty: rule.difficulty,
+        priority: rule.priority,
+        deadline: deadline,
+        pendingApproval: false,
+      },
+    ])
+    rule.lastGeneratedDate = today
+    changed = true
+  })
+
+  if (changed) updateSetting(SETTINGS_KEY_RECURRING_RULES, JSON.stringify(rules))
+}
+
+// One-time setup: open this file in the Apps Script editor, select
+// "setupDailyTrigger" in the function dropdown next to ▶ Run, and run it
+// once. It installs a daily time-based trigger that drives
+// generateRecurringTasks() and the overdue-task Discord sweep below. Safe
+// to re-run — it clears any existing trigger for dailyMaintenance first so
+// re-running it never creates duplicates that fire the same day twice.
+function setupDailyTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'dailyMaintenance') ScriptApp.deleteTrigger(t)
+  })
+  ScriptApp.newTrigger('dailyMaintenance').timeBased().everyDays(1).atHour(6).create()
+}
+
+// The function the trigger installed by setupDailyTrigger() actually calls.
+function dailyMaintenance() {
+  generateRecurringTasks()
+  notifyOverdueTasksToDiscord()
+}
+
+// ---- Discord Webhook 連携 ---------------------------------------------------
+//
+// Set the webhook URL from Admin > Tags in the app (gas/README.md §4.7) to
+// enable. Deliberately stored in Apps Script's private PropertiesService,
+// NOT the Settings sheet — that sheet is published as a public CSV like
+// Members/Projects/Tasks, and a webhook URL is a bearer-token-like secret
+// (anyone holding it can post to the channel), so it must never round-trip
+// through anything publicly readable. There is no doPost action or CSV
+// that reads this value back out — write-only by design. Every call below
+// is best-effort: a missing/invalid webhook or a Discord-side failure
+// never breaks the task action that triggered it.
+
+function getDiscordWebhookUrl() {
+  return PropertiesService.getScriptProperties().getProperty(DISCORD_WEBHOOK_PROPERTY_KEY) || ''
+}
+
+function updateDiscordWebhookUrl(url) {
+  PropertiesService.getScriptProperties().setProperty(DISCORD_WEBHOOK_PROPERTY_KEY, url || '')
+  return { updated: true }
+}
+
+function sendDiscordMessage(content) {
+  try {
+    var url = getDiscordWebhookUrl()
+    if (!url) return
+    UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ content: content }),
+      muteHttpExceptions: true,
+    })
+  } catch (err) {
+    // swallow — Discord delivery is best-effort
+  }
+}
+
+// Daily sweep (see dailyMaintenance/setupDailyTrigger above) — posts one
+// message listing every task whose due_date has passed and isn't 完了.
+function notifyOverdueTasksToDiscord() {
+  try {
+    var url = getDiscordWebhookUrl()
+    if (!url) return
+    var sheet = getSheet(SHEET_TASKS)
+    var headers = headerRow(sheet)
+    var titleCol = headers.indexOf('title')
+    var dueCol = headers.indexOf('due_date')
+    var statusCol = headers.indexOf('status')
+    if (titleCol === -1 || dueCol === -1 || statusCol === -1) return
+    var lastRow = sheet.getLastRow()
+    if (lastRow < 2) return
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues()
+    var today = todayStr()
+    var overdue = rows.filter(function (r) {
+      var due = String(r[dueCol] || '')
+      var status = String(r[statusCol] || '')
+      return due && due < today && status !== '完了'
+    })
+    if (overdue.length === 0) return
+    var lines = overdue.map(function (r) {
+      return '・' + r[titleCol] + '（期限: ' + r[dueCol] + '）'
+    })
+    sendDiscordMessage('⚠️ 期限超過タスクが' + overdue.length + '件あります。\n' + lines.join('\n'))
+  } catch (err) {
+    // best-effort
+  }
 }

@@ -509,6 +509,13 @@ export const remoteApi = {
     postToGas<{ id: string }>('addMember', { name, email, affiliation, role }),
   updateEmail: (memberId: string, email: string) => postToGas('updateEmail', { memberId, email }),
   updateSetting: (key: string, value: string) => postToGas('updateSetting', { key, value }),
+  // Discord Webhook 連携 — deliberately NOT part of updateSetting/Settings
+  // シート同期: that sheet is published as a public CSV like the other
+  // three, so a webhook URL (a bearer-token-like secret) would leak to
+  // anyone who fetches it. This writes to Apps Script's private
+  // PropertiesService instead (see gas/README.md §4.7), which has no
+  // public read path — write-only from the client's perspective.
+  updateDiscordWebhookUrl: (url: string) => postToGas('updateDiscordWebhookUrl', { url }),
   updateMemberProjects: (memberId: string, projectIds: string[]) =>
     postToGas('updateMemberProjects', { memberId, projectIds }),
   updateReviewer: (taskId: string, reviewerId: string | null) =>

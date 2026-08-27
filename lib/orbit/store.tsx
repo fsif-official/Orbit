@@ -152,6 +152,7 @@ interface OrbitContextValue extends OrbitState {
   // item 17: ポジション要件 — jobType (role level string) -> required skills
   jobRequirements: Record<string, string[]>
   setJobRequirements: (jobType: string, skills: string[]) => void
+  setDiscordWebhookUrl: (url: string) => void
   addRecurringRule: (rule: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => void
   removeRecurringRule: (ruleId: string) => void
   toggleRecurringRule: (ruleId: string) => void
@@ -695,6 +696,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           runRemote(remoteApi.updateSetting('job_requirements', JSON.stringify(next)))
         return next
       })
+    },
+    [runRemote],
+  )
+
+  // Discord Webhook 連携 — 確認待ち/期限超過タスクの通知先。書き込み専用:
+  // Webhook URLはApps ScriptのPropertiesService（非公開）に保存され、
+  // Settingsシート（公開CSV）には一切乗らないので、クライアント側で読み
+  // 返す手段は意図的に用意していない（gas/README.md §4.7）。
+  const setDiscordWebhookUrl = useCallback(
+    (url: string) => {
+      if (isRemoteConfigured) runRemote(remoteApi.updateDiscordWebhookUrl(url))
     },
     [runRemote],
   )
@@ -2116,6 +2128,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     recurringRules,
     jobRequirements,
     setJobRequirements,
+    setDiscordWebhookUrl,
     addRecurringRule,
     removeRecurringRule,
     toggleRecurringRule,
