@@ -43,6 +43,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Trash2,
   TriangleAlert,
   UserCheck,
   UserPlus,
@@ -126,6 +127,7 @@ export function TaskDetailDrawer({
     updateEstimatedHours,
     updateActualHours,
     updateRetrospective,
+    removeTask,
     skillOptions,
     categoryOptions,
     addSkillOption,
@@ -134,6 +136,7 @@ export function TaskDetailDrawer({
   } = useOrbit()
   const toast = useToast()
   const [confirmTake, setConfirmTake] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
   const [inputOpen, setInputOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
@@ -179,6 +182,7 @@ export function TaskDetailDrawer({
             onOpenInput={() => setInputOpen(true)}
             onOpenSchedule={() => setScheduleOpen(true)}
             onOpenEdit={() => setEditOpen(true)}
+            onOpenDelete={() => setConfirmDelete(true)}
             onOpenDepends={() => setDependsOpen(true)}
             onOpenReviewer={() => setReviewerOpen(true)}
             onOpenBlocker={() => setBlockerOpen(true)}
@@ -250,6 +254,33 @@ export function TaskDetailDrawer({
             }}
           >
             担当する
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Delete task (admin only) */}
+      <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)}>
+        <h2 className="text-base font-semibold">このタスクを削除しますか？</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          「{task?.name}」を削除します。この操作は取り消せません。
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" className="h-9" onClick={() => setConfirmDelete(false)}>
+            キャンセル
+          </Button>
+          <Button
+            variant="destructive"
+            className="h-9"
+            onClick={() => {
+              if (task) {
+                removeTask(task.id)
+                toast('タスクを削除しました')
+              }
+              setConfirmDelete(false)
+              onClose()
+            }}
+          >
+            削除する
           </Button>
         </div>
       </Modal>
@@ -1066,6 +1097,7 @@ function DrawerBody({
   onClearBlocker,
   onOpenHandoff,
   onOpenEdit,
+  onOpenDelete,
   onAddDeliverable,
   onRemoveDeliverable,
   onAddComment,
@@ -1098,6 +1130,7 @@ function DrawerBody({
   onClearBlocker: () => void
   onOpenHandoff: () => void
   onOpenEdit: () => void
+  onOpenDelete: () => void
   onAddDeliverable: (label: string, url: string) => void
   onRemoveDeliverable: (id: string) => void
   onAddComment: (text: string) => void
@@ -1167,6 +1200,17 @@ function DrawerBody({
             >
               <Pencil className="size-3.5" />
               編集
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={onOpenDelete}
+              className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              aria-label="タスクを削除"
+              title="タスクを削除"
+            >
+              <Trash2 className="size-3.5" />
+              削除
             </button>
           )}
         </div>

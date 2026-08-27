@@ -4,15 +4,17 @@ import { useState } from 'react'
 import type { Difficulty, Task } from '@/lib/orbit/types'
 import { DIFFICULTY_LABEL } from '@/lib/orbit/types'
 import { useOrbit } from '@/lib/orbit/store'
-import { KanbanCard } from './kanban-card'
+import { KanbanCard, KANBAN_CARD_FIELDS, type KanbanCardField } from './kanban-card'
 import { cn } from '@/lib/utils'
 
 export function DifficultyBoard({
   tasks,
   onOpenTask,
+  fields = new Set(KANBAN_CARD_FIELDS),
 }: {
   tasks: Task[]
   onOpenTask: (id: string) => void
+  fields?: Set<KanbanCardField>
 }) {
   const { updateDifficulty } = useOrbit()
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -57,6 +59,7 @@ export function DifficultyBoard({
                 <KanbanCard
                   key={task.id}
                   task={task}
+                  fields={fields}
                   dragging={draggingId === task.id}
                   onDragStart={(e) => {
                     setDraggingId(task.id)

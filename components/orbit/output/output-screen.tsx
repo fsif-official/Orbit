@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
 import { KanbanBoard } from './kanban-board'
@@ -11,8 +11,10 @@ import { ProjectView } from './project-view'
 import { DifficultyBoard } from './difficulty-board'
 import { DependencyView } from './dependency-view'
 import { TaskDetailDrawer } from './task-detail-drawer'
+import { KANBAN_CARD_FIELDS, KANBAN_CARD_FIELD_LABEL, type KanbanCardField } from './kanban-card'
 import { cn } from '@/lib/utils'
 import {
+  Check,
   Columns3,
   LayoutList,
   CalendarDays,
@@ -20,33 +22,90 @@ import {
   GitBranch,
   Inbox,
   Archive,
+  SlidersHorizontal,
+  User,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-type Target = 'all' | 'people' | 'projects' | 'archive'
+type Target = 'mine' | 'all' | 'people' | 'projects' | 'archive'
 type View = 'workflow' | 'list' | 'calendar' | 'difficulty' | 'dependency'
 
+// カードの表示項目はブラウザごとの個人的な好み（組織のデータではない）なので
+// localStorageに保存する。デモ環境で同じブラウザから複数ユーザーを切り替える
+// ことがあるため、ユーザーIDでスコープしておく
+function cardFieldsKey(userId: string | null | undefined): string {
+  return `orbit-card-fields-${userId ?? 'anon'}`
+}
+function loadCardFields(userId: string | null | undefined): Set<KanbanCardField> {
+  if (typeof window === 'undefined') return new Set(KANBAN_CARD_FIELDS)
+  try {
+    const raw = window.localStorage.getItem(cardFieldsKey(userId))
+    if (!raw) return new Set(KANBAN_CARD_FIELDS)
+    const parsed = JSON.parse(raw) as string[]
+    return new Set(parsed.filter((f): f is KanbanCardField => KANBAN_CARD_FIELDS.includes(f as KanbanCardField)))
+  } catch {
+    return new Set(KANBAN_CARD_FIELDS)
+  }
+}
+
 export function OutputScreen() {
-  const { visibleTasks, archivedTasks, projects } = useOrbit()
+  const { visibleTasks, archivedTasks, projects, currentUser } = useOrbit()
   const { go } = useNav()
-  const [target, setTarget] = useState<Target>('all')
+  const [target, setTarget] = useState<Target>('mine')
   const [view, setView] = useState<View>('workflow')
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
   const [projectFilter, setProjectFilter] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const [cardFields, setCardFields] = useState<Set<KanbanCardField>>(() =>
+    loadCardFields(currentUser?.id),
+  )
+  const [fieldsOpen, setFieldsOpen] = useState(false)
+  const fieldsRef = useRef<HTMLDivElement>(null)
 
-  // choosing a 表示 (view) always jumps back to the "一覧" target, since the
-  // workflow/list/calendar/difficulty/dependency views only apply there
-  const selectView = (v: View) => {
-    setView(v)
-    setTarget('all')
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (fieldsRef.current && !fieldsRef.current.contains(e.target as Node)) {
+        setFieldsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [])
+
+  const toggleCardField = (field: KanbanCardField) => {
+    setCardFields((prev) => {
+      const next = new Set(prev)
+      if (next.has(field)) next.delete(field)
+      else next.add(field)
+      try {
+        window.localStorage.setItem(cardFieldsKey(currentUser?.id), JSON.stringify([...next]))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
   }
 
-  // project-unit / schedule-unit filtering, applied to the "一覧" target's views
+  // 自分が担当者に含まれるタスクだけを抜き出したもの。「自分」対象の土台になる
+  const myTasks = useMemo(
+    () => (currentUser ? visibleTasks.filter((t) => t.assigneeIds.includes(currentUser.id)) : []),
+    [visibleTasks, currentUser],
+  )
+
+  // choosing a 表示 (view) jumps to whichever of 自分/一覧 was last active,
+  // since the workflow/list/calendar/difficulty/dependency views only apply
+  // to those two targets
+  const selectView = (v: View) => {
+    setView(v)
+    setTarget((t) => (t === 'all' ? 'all' : 'mine'))
+  }
+
+  // project-unit / schedule-unit filtering, applied to the 自分/一覧 targets' views
   const filteredTasks = useMemo(() => {
-    return visibleTasks.filter((t) => {
+    const base = target === 'mine' ? myTasks : visibleTasks
+    return base.filter((t) => {
       if (projectFilter && t.projectId !== projectFilter) return false
       if (fromDate || toDate) {
         const ref = t.deadline ?? t.startDate
@@ -56,7 +115,7 @@ export function OutputScreen() {
       }
       return true
     })
-  }, [visibleTasks, projectFilter, fromDate, toDate])
+  }, [target, myTasks, visibleTasks, projectFilter, fromDate, toDate])
 
   const hasActiveFilter = !!(projectFilter || fromDate || toDate)
 
@@ -67,13 +126,24 @@ export function OutputScreen() {
           <div>
             <h1 className="text-xl font-semibold tracking-tight">ワークスペース</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              登録済みのタスクを組織の視点で確認します。
+              {target === 'mine'
+                ? 'あなたが担当しているタスクをまとめて確認します。'
+                : '登録済みのタスクを組織の視点で確認します。'}
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <Segment label="対象">
+            <Seg active={target === 'mine'} onClick={() => setTarget('mine')}>
+              <User className="size-3.5" />
+              自分
+              {myTasks.length > 0 && (
+                <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums">
+                  {myTasks.length}
+                </span>
+              )}
+            </Seg>
             <Seg active={target === 'all'} onClick={() => setTarget('all')}>
               一覧
             </Seg>
@@ -95,29 +165,88 @@ export function OutputScreen() {
           </Segment>
 
           <Segment label="表示">
-            <Seg active={target === 'all' && view === 'workflow'} onClick={() => selectView('workflow')}>
+            <Seg
+              active={(target === 'all' || target === 'mine') && view === 'workflow'}
+              onClick={() => selectView('workflow')}
+            >
               <Columns3 className="size-3.5" />
               ワークフロー
             </Seg>
-            <Seg active={target === 'all' && view === 'list'} onClick={() => selectView('list')}>
+            <Seg
+              active={(target === 'all' || target === 'mine') && view === 'list'}
+              onClick={() => selectView('list')}
+            >
               <LayoutList className="size-3.5" />
               リスト
             </Seg>
-            <Seg active={target === 'all' && view === 'calendar'} onClick={() => selectView('calendar')}>
+            <Seg
+              active={(target === 'all' || target === 'mine') && view === 'calendar'}
+              onClick={() => selectView('calendar')}
+            >
               <CalendarDays className="size-3.5" />
               カレンダー
             </Seg>
-            <Seg active={target === 'all' && view === 'difficulty'} onClick={() => selectView('difficulty')}>
+            <Seg
+              active={(target === 'all' || target === 'mine') && view === 'difficulty'}
+              onClick={() => selectView('difficulty')}
+            >
               <GaugeCircle className="size-3.5" />
               難易度
             </Seg>
-            <Seg active={target === 'all' && view === 'dependency'} onClick={() => selectView('dependency')}>
+            <Seg
+              active={(target === 'all' || target === 'mine') && view === 'dependency'}
+              onClick={() => selectView('dependency')}
+            >
               <GitBranch className="size-3.5" />
               依存関係
             </Seg>
           </Segment>
 
-          {target === 'all' && (
+          {(target === 'all' || target === 'mine') && (view === 'workflow' || view === 'difficulty') && (
+            <div className="relative" ref={fieldsRef}>
+              <button
+                type="button"
+                onClick={() => setFieldsOpen((o) => !o)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
+                aria-expanded={fieldsOpen}
+              >
+                <SlidersHorizontal className="size-3.5" />
+                表示項目
+              </button>
+              {fieldsOpen && (
+                <div className="absolute left-0 top-full z-10 mt-1.5 w-44 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg animate-in fade-in slide-in-from-top-1">
+                  <p className="px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                    カードに表示する項目（タスク名は常に表示）
+                  </p>
+                  {KANBAN_CARD_FIELDS.map((f) => {
+                    const checked = cardFields.has(f)
+                    return (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => toggleCardField(f)}
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-secondary"
+                      >
+                        <span
+                          className={cn(
+                            'flex size-4 shrink-0 items-center justify-center rounded border',
+                            checked
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-border-strong text-transparent',
+                          )}
+                        >
+                          <Check className="size-3" strokeWidth={3} />
+                        </span>
+                        {KANBAN_CARD_FIELD_LABEL[f]}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {(target === 'all' || target === 'mine') && (
             <div className="flex flex-wrap items-center gap-2">
               <select
                 value={projectFilter}
@@ -178,23 +307,25 @@ export function OutputScreen() {
         )
       ) : visibleTasks.length === 0 ? (
         <EmptyState onInput={() => go({ name: 'input' })} />
+      ) : target === 'mine' && myTasks.length === 0 ? (
+        <MineEmptyState onShowAll={() => setTarget('all')} />
       ) : (
         <>
           {target === 'people' && <PeopleView />}
           {target === 'projects' && <ProjectView />}
-          {target === 'all' && view === 'workflow' && (
-            <KanbanBoard tasks={filteredTasks} onOpenTask={setOpenTaskId} />
+          {(target === 'all' || target === 'mine') && view === 'workflow' && (
+            <KanbanBoard tasks={filteredTasks} onOpenTask={setOpenTaskId} fields={cardFields} />
           )}
-          {target === 'all' && view === 'list' && (
+          {(target === 'all' || target === 'mine') && view === 'list' && (
             <ListView tasks={filteredTasks} onOpenTask={setOpenTaskId} />
           )}
-          {target === 'all' && view === 'calendar' && (
+          {(target === 'all' || target === 'mine') && view === 'calendar' && (
             <CalendarView tasks={filteredTasks} onOpenTask={setOpenTaskId} />
           )}
-          {target === 'all' && view === 'difficulty' && (
-            <DifficultyBoard tasks={filteredTasks} onOpenTask={setOpenTaskId} />
+          {(target === 'all' || target === 'mine') && view === 'difficulty' && (
+            <DifficultyBoard tasks={filteredTasks} onOpenTask={setOpenTaskId} fields={cardFields} />
           )}
-          {target === 'all' && view === 'dependency' && (
+          {(target === 'all' || target === 'mine') && view === 'dependency' && (
             <DependencyView tasks={filteredTasks} onOpenTask={setOpenTaskId} />
           )}
         </>
@@ -250,6 +381,23 @@ function EmptyState({ onInput }: { onInput: () => void }) {
       <p className="mt-1 text-sm text-muted-foreground">最初のタスクを入力してみましょう。</p>
       <Button className="mt-5 h-9" onClick={onInput}>
         タスクを入力
+      </Button>
+    </div>
+  )
+}
+
+function MineEmptyState({ onShowAll }: { onShowAll: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-20 text-center">
+      <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-secondary">
+        <User className="size-6 text-muted-foreground" />
+      </div>
+      <h2 className="text-base font-semibold">担当しているタスクはありません</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        あなたが担当者になっているタスクがまだありません。
+      </p>
+      <Button variant="ghost" className="mt-5 h-9" onClick={onShowAll}>
+        組織全体の一覧を見る
       </Button>
     </div>
   )

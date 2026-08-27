@@ -5,15 +5,17 @@ import type { Task, TaskStatus } from '@/lib/orbit/types'
 import { STATUS_COLOR, STATUS_LABEL, STATUS_ORDER, isAdminRole } from '@/lib/orbit/types'
 import { useOrbit } from '@/lib/orbit/store'
 import { useToast } from '../toast'
-import { KanbanCard } from './kanban-card'
+import { KanbanCard, KANBAN_CARD_FIELDS, type KanbanCardField } from './kanban-card'
 import { cn } from '@/lib/utils'
 
 export function KanbanBoard({
   tasks,
   onOpenTask,
+  fields = new Set(KANBAN_CARD_FIELDS),
 }: {
   tasks: Task[]
   onOpenTask: (id: string) => void
+  fields?: Set<KanbanCardField>
 }) {
   const { updateTaskStatus, currentUser } = useOrbit()
   const toast = useToast()
@@ -77,6 +79,7 @@ export function KanbanBoard({
                 <KanbanCard
                   key={task.id}
                   task={task}
+                  fields={fields}
                   dragging={draggingId === task.id}
                   onDragStart={(e) => {
                     setDraggingId(task.id)

@@ -89,6 +89,7 @@ Admin → Membersの「メンバーを登録」フォームから新規メンバ
 | completed_date | 完了日 |
 | last_activity | 最終更新日（放置検知に使用） |
 | progress_note | 直近の進捗メモ |
+| progress_history_json | 進捗メモの履歴の配列（JSON文字列、例：`[{"id":"pg-1","text":"...","at":"2026-01-01T00:00:00.000Z","byId":"1"}]`）。タスク詳細の進捗ログに新しい順で表示されます |
 | original_input_id | 生成元の自然文入力ID |
 | approval_status | 承認待ち / 承認済み（空欄は承認済み扱い） |
 | depends_on_ids | このタスクの前提タスクID（複数可、カンマ区切り）。ワークスペースの「依存関係」表示で、枝でつないだツリーとして表示されます（既存の「ワークフロー」カンバンとは別のビューです） |
