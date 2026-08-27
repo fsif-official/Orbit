@@ -14,12 +14,14 @@ import { TaskDetailDrawer } from './task-detail-drawer'
 import { KANBAN_CARD_FIELDS, KANBAN_CARD_FIELD_LABEL, type KanbanCardField } from './kanban-card'
 import { cn } from '@/lib/utils'
 import {
+  ArrowUpDown,
   Check,
   Columns3,
   LayoutList,
   CalendarDays,
   GaugeCircle,
   GitBranch,
+  GripVertical,
   Inbox,
   Archive,
   SlidersHorizontal,
@@ -30,6 +32,35 @@ import { Button } from '@/components/ui/button'
 
 type Target = 'mine' | 'all' | 'people' | 'projects' | 'archive'
 type View = 'workflow' | 'list' | 'calendar' | 'difficulty' | 'dependency'
+
+const DEFAULT_TARGET_ORDER: Target[] = ['mine', 'all', 'people', 'projects', 'archive']
+const TARGET_LABEL: Record<Target, string> = {
+  mine: '自分',
+  all: '一覧',
+  people: '個人',
+  projects: 'プロジェクト',
+  archive: 'アーカイブ',
+}
+
+// 対象タブの並び順もブラウザごとの個人的な好みなので localStorage に保存する。
+// 一番左（先頭）が既定表示になる
+function targetOrderKey(userId: string | null | undefined): string {
+  return `orbit-target-order-${userId ?? 'anon'}`
+}
+function loadTargetOrder(userId: string | null | undefined): Target[] {
+  if (typeof window === 'undefined') return DEFAULT_TARGET_ORDER
+  try {
+    const raw = window.localStorage.getItem(targetOrderKey(userId))
+    if (!raw) return DEFAULT_TARGET_ORDER
+    const parsed = JSON.parse(raw) as string[]
+    const valid = parsed.filter((t): t is Target => DEFAULT_TARGET_ORDER.includes(t as Target))
+    // 将来的に対象が増えた場合に備え、保存済みの並びに無いものは末尾に補完する
+    const missing = DEFAULT_TARGET_ORDER.filter((t) => !valid.includes(t))
+    return valid.length > 0 ? [...valid, ...missing] : DEFAULT_TARGET_ORDER
+  } catch {
+    return DEFAULT_TARGET_ORDER
+  }
+}
 
 // カードの表示項目はブラウザごとの個人的な好み（組織のデータではない）なので
 // localStorageに保存する。デモ環境で同じブラウザから複数ユーザーを切り替える
@@ -52,7 +83,8 @@ function loadCardFields(userId: string | null | undefined): Set<KanbanCardField>
 export function OutputScreen() {
   const { visibleTasks, archivedTasks, projects, currentUser } = useOrbit()
   const { go } = useNav()
-  const [target, setTarget] = useState<Target>('mine')
+  const [targetOrder, setTargetOrder] = useState<Target[]>(() => loadTargetOrder(currentUser?.id))
+  const [target, setTarget] = useState<Target>(() => loadTargetOrder(currentUser?.id)[0])
   const [view, setView] = useState<View>('workflow')
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
   const [projectFilter, setProjectFilter] = useState('')
@@ -63,11 +95,17 @@ export function OutputScreen() {
   )
   const [fieldsOpen, setFieldsOpen] = useState(false)
   const fieldsRef = useRef<HTMLDivElement>(null)
+  const [orderOpen, setOrderOpen] = useState(false)
+  const orderRef = useRef<HTMLDivElement>(null)
+  const [draggingTarget, setDraggingTarget] = useState<Target | null>(null)
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (fieldsRef.current && !fieldsRef.current.contains(e.target as Node)) {
         setFieldsOpen(false)
+      }
+      if (orderRef.current && !orderRef.current.contains(e.target as Node)) {
+        setOrderOpen(false)
       }
     }
     document.addEventListener('mousedown', onClick)
@@ -88,6 +126,21 @@ export function OutputScreen() {
     })
   }
 
+  // dragged を dropOn の位置に差し込む形で並び替える（一番左が既定表示になる）
+  const reorderTarget = (dragged: Target, dropOn: Target) => {
+    if (dragged === dropOn) return
+    setTargetOrder((prev) => {
+      const next = prev.filter((t) => t !== dragged)
+      next.splice(next.indexOf(dropOn), 0, dragged)
+      try {
+        window.localStorage.setItem(targetOrderKey(currentUser?.id), JSON.stringify(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
+
   // 自分が担当者に含まれるタスクだけを抜き出したもの。「自分」対象の土台になる
   const myTasks = useMemo(
     () => (currentUser ? visibleTasks.filter((t) => t.assigneeIds.includes(currentUser.id)) : []),
@@ -99,7 +152,9 @@ export function OutputScreen() {
   // to those two targets
   const selectView = (v: View) => {
     setView(v)
-    setTarget((t) => (t === 'all' ? 'all' : 'mine'))
+    setTarget((t) =>
+      t === 'all' || t === 'mine' ? t : targetOrder.find((x) => x === 'mine' || x === 'all') ?? 'mine',
+    )
   }
 
   // project-unit / schedule-unit filtering, applied to the 自分/一覧 targets' views
@@ -135,34 +190,64 @@ export function OutputScreen() {
 
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <Segment label="対象">
-            <Seg active={target === 'mine'} onClick={() => setTarget('mine')}>
-              <User className="size-3.5" />
-              自分
-              {myTasks.length > 0 && (
-                <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums">
-                  {myTasks.length}
-                </span>
-              )}
-            </Seg>
-            <Seg active={target === 'all'} onClick={() => setTarget('all')}>
-              一覧
-            </Seg>
-            <Seg active={target === 'people'} onClick={() => setTarget('people')}>
-              個人
-            </Seg>
-            <Seg active={target === 'projects'} onClick={() => setTarget('projects')}>
-              プロジェクト
-            </Seg>
-            <Seg active={target === 'archive'} onClick={() => setTarget('archive')}>
-              <Archive className="size-3.5" />
-              アーカイブ
-              {archivedTasks.length > 0 && (
-                <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums">
-                  {archivedTasks.length}
-                </span>
-              )}
-            </Seg>
+            {targetOrder.map((t) => (
+              <Seg key={t} active={target === t} onClick={() => setTarget(t)}>
+                {t === 'mine' && <User className="size-3.5" />}
+                {t === 'archive' && <Archive className="size-3.5" />}
+                {TARGET_LABEL[t]}
+                {t === 'mine' && myTasks.length > 0 && (
+                  <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums">
+                    {myTasks.length}
+                  </span>
+                )}
+                {t === 'archive' && archivedTasks.length > 0 && (
+                  <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums">
+                    {archivedTasks.length}
+                  </span>
+                )}
+              </Seg>
+            ))}
           </Segment>
+
+          <div className="relative" ref={orderRef}>
+            <button
+              type="button"
+              onClick={() => setOrderOpen((o) => !o)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
+              aria-expanded={orderOpen}
+              title="対象タブの並び替え"
+            >
+              <ArrowUpDown className="size-3.5" />
+              並び替え
+            </button>
+            {orderOpen && (
+              <div className="absolute left-0 top-full z-10 mt-1.5 w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg animate-in fade-in slide-in-from-top-1">
+                <p className="px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                  ドラッグで並び替え（一番上が既定表示）
+                </p>
+                {targetOrder.map((t) => (
+                  <div
+                    key={t}
+                    draggable
+                    onDragStart={() => setDraggingTarget(t)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => {
+                      if (draggingTarget) reorderTarget(draggingTarget, t)
+                      setDraggingTarget(null)
+                    }}
+                    onDragEnd={() => setDraggingTarget(null)}
+                    className={cn(
+                      'flex cursor-grab items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-foreground transition-colors hover:bg-secondary',
+                      draggingTarget === t && 'opacity-40',
+                    )}
+                  >
+                    <GripVertical className="size-3.5 shrink-0 text-muted-foreground" />
+                    {TARGET_LABEL[t]}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <Segment label="表示">
             <Seg
