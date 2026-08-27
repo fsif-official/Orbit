@@ -34,7 +34,12 @@ export function KanbanBoard({
   }
 
   return (
-    <div className="flex gap-3 overflow-x-auto orbit-scroll pb-4">
+    // 6 columns of a fixed 276px each never fit the page (max-w-[1360px]),
+    // so 完了 (the last column) was always cut off and needed a horizontal
+    // scroll to reach. auto-cols shrinks every column to fit the available
+    // width down to a 180px floor, and only falls back to horizontal
+    // scroll below that (narrow/mobile viewports).
+    <div className="grid auto-cols-[minmax(180px,1fr)] grid-flow-col gap-3 overflow-x-auto orbit-scroll pb-4">
       {STATUS_ORDER.map((status) => {
         const columnTasks = tasks.filter((t) => t.status === status)
         return (
@@ -49,7 +54,7 @@ export function KanbanBoard({
             }}
             onDrop={() => handleDrop(status)}
             className={cn(
-              'flex w-[276px] shrink-0 flex-col rounded-xl border transition-colors',
+              'flex flex-col rounded-xl border transition-colors',
               overColumn === status
                 ? 'border-primary/40 bg-primary-muted/40'
                 : 'border-border bg-secondary/50',
