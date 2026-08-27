@@ -12,12 +12,20 @@ import {
   Tag,
 } from '../primitives'
 import {
+  DEPARTMENTS,
+  DIFFICULTY_LABEL,
   STATUS_LABEL,
   STATUS_ORDER,
+  TASK_IMPORTANCE,
   isAdminRole,
+  type Department,
+  type Difficulty,
   type Member,
+  type Priority,
+  type Project,
   type Task,
   type TaskHistoryEntry,
+  type TaskImportance,
   type TaskRetrospective,
   type TaskStatus,
 } from '@/lib/orbit/types'
@@ -48,12 +56,22 @@ const HISTORY_FIELD_LABEL: Record<TaskHistoryEntry['field'], string> = {
   priority: '優先度',
   status: 'ステータス',
   reviewer: '確認者',
+  title: 'タスク名',
+  description: '詳細',
+  project: 'プロジェクト',
+  department: '部門',
+  category: 'カテゴリ',
+  skills: '要求スキル',
+  difficulty: '難易度',
+  visibility: '公開範囲',
+  importance: '重要度',
 }
 
 function historyValueLabel(
   field: TaskHistoryEntry['field'],
   raw: string,
   members: Member[],
+  projects: Project[],
 ): string {
   if (!raw) return '未設定'
   if (field === 'assignee') {
@@ -70,6 +88,12 @@ function historyValueLabel(
     const m = members.find((mm) => mm.id === raw)
     return m ? m.displayName || m.name : raw
   }
+  if (field === 'project') {
+    return projects.find((p) => p.id === raw)?.name ?? raw
+  }
+  if (field === 'visibility') {
+    return raw === '幹部' ? '幹部限定' : '全員'
+  }
   return raw
 }
 
@@ -82,6 +106,7 @@ export function TaskDetailDrawer({
 }) {
   const {
     tasks,
+    projects,
     currentUser,
     getMember,
     getProject,
@@ -92,6 +117,7 @@ export function TaskDetailDrawer({
     updateSchedule,
     updateDependsOn,
     updateReviewer,
+    updateTaskDetails,
     setBlocker,
     addDeliverable,
     removeDeliverable,
@@ -100,6 +126,10 @@ export function TaskDetailDrawer({
     updateEstimatedHours,
     updateActualHours,
     updateRetrospective,
+    skillOptions,
+    categoryOptions,
+    addSkillOption,
+    addCategoryOption,
     members,
   } = useOrbit()
   const toast = useToast()
@@ -112,6 +142,7 @@ export function TaskDetailDrawer({
   const [reviewerOpen, setReviewerOpen] = useState(false)
   const [blockerOpen, setBlockerOpen] = useState(false)
   const [handoffOpen, setHandoffOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
 
   const task = tasks.find((t) => t.id === taskId) ?? null
   const open = !!taskId
@@ -138,6 +169,7 @@ export function TaskDetailDrawer({
             creator={getMember(task.createdById ?? null) ?? null}
             reviewer={reviewer}
             members={members}
+            projects={projects}
             projectName={getProject(task.projectId)?.name ?? ''}
             hasSourceInput={!!sourceInput}
             onClose={onClose}
@@ -146,6 +178,7 @@ export function TaskDetailDrawer({
             onOpenAssign={() => setAssignOpen(true)}
             onOpenInput={() => setInputOpen(true)}
             onOpenSchedule={() => setScheduleOpen(true)}
+            onOpenEdit={() => setEditOpen(true)}
             onOpenDepends={() => setDependsOpen(true)}
             onOpenReviewer={() => setReviewerOpen(true)}
             onOpenBlocker={() => setBlockerOpen(true)}
@@ -308,6 +341,25 @@ export function TaskDetailDrawer({
           updateSchedule(task.id, startDate, deadline)
           toast('日程を変更しました。管理者に通知されます。')
           setScheduleOpen(false)
+        }}
+      />
+
+      {/* Admin edit (title/description/project/department/category/skills/
+          difficulty/priority/visibility/importance) */}
+      <EditTaskModal
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        task={task}
+        projects={projects}
+        skillOptions={skillOptions}
+        categoryOptions={categoryOptions}
+        onAddSkillOption={addSkillOption}
+        onAddCategoryOption={addCategoryOption}
+        onSave={(details) => {
+          if (!task) return
+          updateTaskDetails(task.id, details)
+          toast('タスクを更新しました')
+          setEditOpen(false)
         }}
       />
 
@@ -669,6 +721,327 @@ function ScheduleModal({
   )
 }
 
+const PRIORITY_OPTIONS: Priority[] = ['高', '中', '低']
+
+// 管理者向けの一括編集モーダル — INPUT画面の承認前カード（parsed-task-card.tsx）
+// と同じ項目を、承認後のタスクに対しても編集できるようにする
+function EditTaskModal({
+  open,
+  onClose,
+  task,
+  projects,
+  skillOptions,
+  categoryOptions,
+  onAddSkillOption,
+  onAddCategoryOption,
+  onSave,
+}: {
+  open: boolean
+  onClose: () => void
+  task: Task | null
+  projects: Project[]
+  skillOptions: string[]
+  categoryOptions: string[]
+  onAddSkillOption: (skill: string) => void
+  onAddCategoryOption: (category: string) => void
+  onSave: (details: {
+    name: string
+    description: string
+    projectId: string
+    department: Department
+    category: string
+    skills: string[]
+    difficulty: Difficulty
+    priority: Priority
+    visibility: 'all' | '幹部'
+    importance: TaskImportance
+  }) => void
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [projectId, setProjectId] = useState('')
+  const [department, setDepartment] = useState<Department>(DEPARTMENTS[0])
+  const [category, setCategory] = useState('')
+  const [addingCategory, setAddingCategory] = useState(false)
+  const [categoryDraft, setCategoryDraft] = useState('')
+  const [skills, setSkills] = useState<string[]>([])
+  const [skillDraft, setSkillDraft] = useState('')
+  const [difficulty, setDifficulty] = useState<Difficulty>(DIFFICULTY_LABEL[0])
+  const [priority, setPriority] = useState<Priority>('中')
+  const [visibility, setVisibility] = useState<'all' | '幹部'>('all')
+  const [importance, setImportance] = useState<TaskImportance>('一般')
+
+  // sync drafts whenever the modal opens for a (possibly different) task
+  const [lastTaskId, setLastTaskId] = useState<string | null>(null)
+  if (task && task.id !== lastTaskId && open) {
+    setLastTaskId(task.id)
+    setName(task.name)
+    setDescription(task.description ?? '')
+    setProjectId(task.projectId)
+    setDepartment(task.department)
+    setCategory(task.category)
+    setSkills(task.skills)
+    setDifficulty(task.difficulty)
+    setPriority(task.priority)
+    setVisibility(task.visibility ?? 'all')
+    setImportance(task.importance ?? '一般')
+  }
+
+  const addSkill = () => {
+    const v = skillDraft.trim()
+    if (v) {
+      onAddSkillOption(v)
+      if (!skills.includes(v)) setSkills([...skills, v])
+    }
+    setSkillDraft('')
+  }
+  const availableSkills = skillOptions.filter((s) => !skills.includes(s))
+
+  const commitNewCategory = () => {
+    const v = categoryDraft.trim()
+    if (v) {
+      onAddCategoryOption(v)
+      setCategory(v)
+    }
+    setCategoryDraft('')
+    setAddingCategory(false)
+  }
+
+  const fieldClass =
+    'h-9 w-full cursor-pointer rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary'
+
+  return (
+    <Modal open={open} onClose={onClose} labelledBy="edit-task-title">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 id="edit-task-title" className="text-base font-semibold">
+          タスクを編集
+        </h2>
+        <button onClick={onClose} aria-label="閉じる">
+          <X className="size-4 text-muted-foreground" />
+        </button>
+      </div>
+      <div className="flex max-h-[70vh] flex-col gap-3 overflow-auto orbit-scroll pr-1">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">タスク名</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="h-9 rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">詳細</span>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            className="resize-none rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary"
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">プロジェクト</span>
+            <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={fieldClass}>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">部門</span>
+            <select
+              value={department}
+              onChange={(e) => setDepartment(e.target.value as Department)}
+              className={fieldClass}
+            >
+              {DEPARTMENTS.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">カテゴリ</span>
+            {addingCategory ? (
+              <input
+                autoFocus
+                value={categoryDraft}
+                onChange={(e) => setCategoryDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    commitNewCategory()
+                  }
+                  if (e.key === 'Escape') {
+                    setCategoryDraft('')
+                    setAddingCategory(false)
+                  }
+                }}
+                onBlur={commitNewCategory}
+                placeholder="新しいカテゴリ名"
+                className="h-9 rounded-lg border border-primary bg-card px-3 text-sm outline-none"
+              />
+            ) : (
+              <select
+                value={category}
+                onChange={(e) => {
+                  if (e.target.value === '__new__') {
+                    setAddingCategory(true)
+                  } else {
+                    setCategory(e.target.value)
+                  }
+                }}
+                className={fieldClass}
+              >
+                {!categoryOptions.includes(category) && category && (
+                  <option value={category}>{category}</option>
+                )}
+                {categoryOptions.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+                <option value="__new__">＋ 新しいカテゴリを追加</option>
+              </select>
+            )}
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">難易度</span>
+            <select
+              value={difficulty}
+              onChange={(e) => setDifficulty(e.target.value as Difficulty)}
+              className={fieldClass}
+            >
+              {DIFFICULTY_LABEL.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">優先度</span>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as Priority)}
+              className={fieldClass}
+            >
+              {PRIORITY_OPTIONS.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">公開範囲</span>
+            <select
+              value={visibility}
+              onChange={(e) => setVisibility(e.target.value as 'all' | '幹部')}
+              className={fieldClass}
+            >
+              <option value="all">全員</option>
+              <option value="幹部">幹部限定</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">重要度</span>
+            <select
+              value={importance}
+              onChange={(e) => setImportance(e.target.value as TaskImportance)}
+              className={fieldClass}
+            >
+              {TASK_IMPORTANCE.map((i) => (
+                <option key={i} value={i}>
+                  {i}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">要求スキル</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {skills.map((s) => (
+              <Tag key={s} onRemove={() => setSkills(skills.filter((x) => x !== s))}>
+                {s}
+              </Tag>
+            ))}
+            {availableSkills.length > 0 && (
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                {availableSkills.slice(0, 6).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setSkills([...skills, s])}
+                    className="inline-flex items-center gap-0.5 rounded-md border border-primary/25 bg-primary/5 px-1.5 py-0.5 text-[11px] font-medium text-foreground hover:bg-primary/10"
+                  >
+                    <Plus className="size-3 text-primary" />
+                    {s}
+                  </button>
+                ))}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-border-strong px-1.5 py-0.5">
+              <input
+                value={skillDraft}
+                onChange={(e) => setSkillDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addSkill()
+                  }
+                }}
+                placeholder="追加"
+                className="w-14 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
+                aria-label="スキルを追加"
+              />
+              <button
+                type="button"
+                onClick={addSkill}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="スキルを追加"
+              >
+                <Plus className="size-3" />
+              </button>
+            </span>
+          </div>
+        </label>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="ghost" className="h-9" onClick={onClose}>
+          キャンセル
+        </Button>
+        <Button
+          className="h-9"
+          disabled={!name.trim() || !projectId}
+          onClick={() => {
+            onSave({
+              name: name.trim(),
+              description: description.trim(),
+              projectId,
+              department,
+              category: category.trim() || '未分類',
+              skills,
+              difficulty,
+              priority,
+              visibility,
+              importance,
+            })
+          }}
+        >
+          保存
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
 function DrawerBody({
   task,
   currentUserId,
@@ -678,6 +1051,7 @@ function DrawerBody({
   creator,
   reviewer,
   members,
+  projects,
   projectName,
   hasSourceInput,
   onClose,
@@ -691,6 +1065,7 @@ function DrawerBody({
   onOpenBlocker,
   onClearBlocker,
   onOpenHandoff,
+  onOpenEdit,
   onAddDeliverable,
   onRemoveDeliverable,
   onAddComment,
@@ -708,6 +1083,7 @@ function DrawerBody({
   creator: Member | null
   reviewer: Member | null
   members: Member[]
+  projects: Project[]
   projectName: string
   hasSourceInput: boolean
   onClose: () => void
@@ -721,6 +1097,7 @@ function DrawerBody({
   onOpenBlocker: () => void
   onClearBlocker: () => void
   onOpenHandoff: () => void
+  onOpenEdit: () => void
   onAddDeliverable: (label: string, url: string) => void
   onRemoveDeliverable: (id: string) => void
   onAddComment: (text: string) => void
@@ -780,6 +1157,17 @@ function DrawerBody({
             <span className="shrink-0 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
               {task.importance}
             </span>
+          )}
+          {isAdmin && (
+            <button
+              onClick={onOpenEdit}
+              className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+              aria-label="タスクを編集"
+              title="タスクを編集"
+            >
+              <Pencil className="size-3.5" />
+              編集
+            </button>
           )}
         </div>
         {task.description && (
@@ -1228,8 +1616,8 @@ function DrawerBody({
                       {members.find((m) => m.id === h.byId)?.displayName ||
                         members.find((m) => m.id === h.byId)?.name ||
                         '不明'}
-                      が{HISTORY_FIELD_LABEL[h.field]}を「{historyValueLabel(h.field, h.from, members)}」→「
-                      {historyValueLabel(h.field, h.to, members)}」に変更
+                      が{HISTORY_FIELD_LABEL[h.field]}を「{historyValueLabel(h.field, h.from, members, projects)}」→「
+                      {historyValueLabel(h.field, h.to, members, projects)}」に変更
                     </p>
                   </li>
                 ))}

@@ -26,6 +26,7 @@ import type {
   TaskComment,
   TaskDeliverable,
   TaskHistoryEntry,
+  TaskImportance,
   TaskRetrospective,
   TaskSetTemplate,
   TaskStatus,
@@ -440,6 +441,34 @@ export const remoteApi = {
     postToGas('updatePriority', { taskId, priority }),
   updateDifficulty: (taskId: string, difficulty: Difficulty) =>
     postToGas('updateDifficulty', { taskId, difficulty }),
+  updateTaskDetails: (
+    taskId: string,
+    details: {
+      name: string
+      description: string
+      projectId: string
+      department: Department
+      category: string
+      skills: string[]
+      difficulty: Difficulty
+      priority: Priority
+      visibility: 'all' | '幹部'
+      importance: TaskImportance
+    },
+  ) =>
+    postToGas('updateTaskDetails', {
+      taskId,
+      name: details.name,
+      description: details.description,
+      projectId: details.projectId,
+      department: details.department,
+      category: details.category,
+      skills: details.skills,
+      difficulty: details.difficulty,
+      priority: details.priority,
+      visibility: details.visibility,
+      importance: details.importance,
+    }),
   updateProgress: (taskId: string, text: string) =>
     postToGas('updateProgress', { taskId, text }),
   updateWill: (memberId: string, will: string[]) => postToGas('updateWill', { memberId, will }),

@@ -61,6 +61,20 @@ function doPost(e) {
       case 'updateDifficulty':
         result = updateTaskFields(body.taskId, { difficulty: body.difficulty })
         break
+      case 'updateTaskDetails':
+        result = updateTaskFields(body.taskId, {
+          title: body.name,
+          description: body.description || '',
+          project_id: body.projectId,
+          department: body.department,
+          category: body.category,
+          skills: (body.skills || []).join(','),
+          difficulty: body.difficulty,
+          priority: body.priority,
+          visibility: body.visibility === '幹部' ? '幹部' : '全員',
+          importance: body.importance || '一般',
+        })
+        break
       case 'updateProgress':
         result = updateTaskFields(body.taskId, {
           progress_note: body.text,
