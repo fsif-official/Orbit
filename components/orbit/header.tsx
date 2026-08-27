@@ -20,7 +20,6 @@ import {
   Moon,
   RefreshCw,
   Search,
-  ShieldCheck,
   Sun,
   User,
   X,
@@ -111,6 +110,8 @@ export function Header() {
     screen.name === 'output' ||
     screen.name === 'person' ||
     screen.name === 'project'
+  const isAdminActive = screen.name === 'admin'
+  const isAdmin = isAdminRole(currentUser.role)
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur">
@@ -154,6 +155,15 @@ export function Header() {
           >
             OUTPUT
           </ModeButton>
+          {isAdmin && (
+            <ModeButton
+              active={isAdminActive}
+              onClick={() => go({ name: 'admin', section: 'dashboard' })}
+              sub="管理する"
+            >
+              ADMIN
+            </ModeButton>
+          )}
         </div>
 
         {/* right */}
@@ -326,18 +336,6 @@ export function Header() {
                   </div>
                 </div>
                 <div className="my-1 h-px bg-border" />
-                {isAdminRole(currentUser.role) && (
-                  <MenuItem
-                    onClick={() => {
-                      setMenuOpen(false)
-                      go({ name: 'admin', section: 'dashboard' })
-                    }}
-                    highlight
-                  >
-                    <ShieldCheck className="size-4" />
-                    ADMIN
-                  </MenuItem>
-                )}
                 <MenuItem
                   onClick={() => {
                     setMenuOpen(false)
