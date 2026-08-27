@@ -20,7 +20,6 @@ import {
   Moon,
   RefreshCw,
   Search,
-  ShieldCheck,
   Sun,
   User,
   X,
@@ -111,12 +110,14 @@ export function Header() {
     screen.name === 'output' ||
     screen.name === 'person' ||
     screen.name === 'project'
+  const isAdminActive = screen.name === 'admin'
+  const isAdmin = isAdminRole(currentUser.role)
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between gap-4 px-4 sm:px-6">
+      <div className="mx-auto grid h-14 max-w-[1400px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 sm:px-6">
         {/* left */}
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex min-w-0 items-center gap-1">
           {canGoBack && (
             <button
               type="button"
@@ -154,10 +155,19 @@ export function Header() {
           >
             OUTPUT
           </ModeButton>
+          {isAdmin && (
+            <ModeButton
+              active={isAdminActive}
+              onClick={() => go({ name: 'admin', section: 'dashboard' })}
+              sub="管理する"
+            >
+              ADMIN
+            </ModeButton>
+          )}
         </div>
 
         {/* right */}
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex min-w-0 items-center justify-end gap-1">
           <button
             type="button"
             onClick={toggle}
@@ -326,18 +336,6 @@ export function Header() {
                   </div>
                 </div>
                 <div className="my-1 h-px bg-border" />
-                {isAdminRole(currentUser.role) && (
-                  <MenuItem
-                    onClick={() => {
-                      setMenuOpen(false)
-                      go({ name: 'admin', section: 'dashboard' })
-                    }}
-                    highlight
-                  >
-                    <ShieldCheck className="size-4" />
-                    ADMIN
-                  </MenuItem>
-                )}
                 <MenuItem
                   onClick={() => {
                     setMenuOpen(false)
