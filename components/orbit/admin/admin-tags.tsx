@@ -2,7 +2,9 @@
 
 import { useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
+import { useToast } from '@/components/orbit/toast'
 import { Tag, SectionLabel } from '@/components/orbit/primitives'
+import { Button } from '@/components/ui/button'
 import { ADMIN_SECTIONS, DEFAULT_NON_TOP_SECTIONS, BASE_ROLE } from '@/lib/orbit/types'
 import type { AdminSection } from '@/lib/orbit/types'
 import { Plus, Check } from 'lucide-react'
@@ -27,7 +29,10 @@ export function AdminTags() {
     setRolePermissions,
     jobRequirements,
     setJobRequirements,
+    setDiscordWebhookUrl,
   } = useOrbit()
+  const toast = useToast()
+  const [webhookDraft, setWebhookDraft] = useState('')
   // every role level except the bottom (first) one is full admin with
   // unrestricted section access — only the bottom tier's visibility is
   // configurable (see store.tsx's isFullAdminMember/visibleAdminSections)
@@ -108,6 +113,40 @@ export function AdminTags() {
           </div>
         </div>
       )}
+
+      <div className="mt-6 rounded-lg border border-border bg-card p-4">
+        <SectionLabel>Discord Webhook 連携</SectionLabel>
+        <p className="mt-1 text-xs text-muted-foreground">
+          設定すると、タスクが確認待ちになったとき・期限超過タスクの日次サマリーが
+          指定したDiscordチャンネルに通知されます。Discordのチャンネル設定 → 連携サービス
+          → ウェブフックで発行したURLを貼り付けて保存してください。
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          このURLは書き込み専用です（保存後、画面上に表示されることはありません）。
+          流出すると誰でもそのDiscordチャンネルに投稿できてしまうため、公開される
+          スプレッドシートには保存せず、Apps Script側だけが読める場所に保管しています
+          （詳しくは gas/README.md を参照）。
+        </p>
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            value={webhookDraft}
+            onChange={(e) => setWebhookDraft(e.target.value)}
+            placeholder="https://discord.com/api/webhooks/..."
+            className="h-9 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+          />
+          <Button
+            className="h-9 shrink-0"
+            disabled={!webhookDraft.trim()}
+            onClick={() => {
+              setDiscordWebhookUrl(webhookDraft.trim())
+              setWebhookDraft('')
+              toast('Discord Webhook URLを保存しました')
+            }}
+          >
+            保存
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

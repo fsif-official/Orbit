@@ -15,7 +15,6 @@ import {
   DEPARTMENTS,
   DIFFICULTY_LABEL,
   STATUS_LABEL,
-  STATUS_ORDER,
   TASK_IMPORTANCE,
   isAdminRole,
   type Department,
@@ -30,6 +29,7 @@ import {
   type TaskStatus,
 } from '@/lib/orbit/types'
 import { formatDeadlineFull, formatDateTime, googleCalendarUrl, isOverdue } from '@/lib/orbit/utils'
+import { allowedStatusOptions, canChangeTaskStatus } from '@/lib/orbit/permissions'
 import { cn } from '@/lib/utils'
 import {
   Ban,
@@ -1114,7 +1114,7 @@ function DrawerBody({
     category: task.category,
   })
   const isAssignee = !!currentUserId && task.assigneeIds.includes(currentUserId)
-  const canChangeStatus = isAdmin || isAssignee
+  const canChangeStatus = canChangeTaskStatus(isAdmin, isAssignee)
   const canUpdateProgress = isAdmin || isAssignee
   const canManageBlocker = isAdmin || isAssignee
   const canManageDeliverables = isAdmin || isAssignee
@@ -1126,7 +1126,7 @@ function DrawerBody({
 
   // only an admin can move a task to the final 完了 — an assignee's own
   // "done" signal is 確認待ち, which emails the admin for confirmation
-  const statusOptions = STATUS_ORDER.filter((s) => s !== 'done' || isAdmin)
+  const statusOptions = allowedStatusOptions(isAdmin)
 
   return (
     <div className="flex h-full flex-col">

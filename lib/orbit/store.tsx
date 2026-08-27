@@ -40,13 +40,8 @@ import type {
   ParsedTask,
   ProgressEntry,
 } from './types'
-import {
-  canSeeExecTasks,
-  BASE_ROLE,
-  DEFAULT_NON_TOP_SECTIONS,
-  ADMIN_SECTIONS,
-  STATUS_LABEL,
-} from './types'
+import { canSeeExecTasks, BASE_ROLE, STATUS_LABEL } from './types'
+import { isFullAdminRole, resolveVisibleAdminSections } from './permissions'
 import { MEMBERS, PROJECTS, SEED_TASKS, SEED_INPUTS } from './seed'
 import {
   colorForId,
@@ -152,6 +147,7 @@ interface OrbitContextValue extends OrbitState {
   // item 17: ポジション要件 — jobType (role level string) -> required skills
   jobRequirements: Record<string, string[]>
   setJobRequirements: (jobType: string, skills: string[]) => void
+  setDiscordWebhookUrl: (url: string) => void
   addRecurringRule: (rule: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => void
   removeRecurringRule: (ruleId: string) => void
   toggleRecurringRule: (ruleId: string) => void
@@ -695,6 +691,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           runRemote(remoteApi.updateSetting('job_requirements', JSON.stringify(next)))
         return next
       })
+    },
+    [runRemote],
+  )
+
+  // Discord Webhook 連携 — 確認待ち/期限超過タスクの通知先。書き込み専用:
+  // Webhook URLはApps ScriptのPropertiesService（非公開）に保存され、
+  // Settingsシート（公開CSV）には一切乗らないので、クライアント側で読み
+  // 返す手段は意図的に用意していない（gas/README.md §4.7）。
+  const setDiscordWebhookUrl = useCallback(
+    (url: string) => {
+      if (isRemoteConfigured) runRemote(remoteApi.updateDiscordWebhookUrl(url))
     },
     [runRemote],
   )
@@ -1944,11 +1951,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   // Only the bottom-most tier is scoped to its own project_ids. With a
   // single configured tier, that tier is trivially full admin.
   const isFullAdminMember = useCallback(
-    (member: Member | null | undefined) => {
-      if (!member || member.role === BASE_ROLE) return false
-      if (roleLevels.length <= 1) return true
-      return member.role !== roleLevels[0]
-    },
+    (member: Member | null | undefined) => isFullAdminRole(member?.role, roleLevels),
     [roleLevels],
   )
   const isFullAdmin = useMemo(() => isFullAdminMember(currentUser), [isFullAdminMember, currentUser])
@@ -1956,14 +1959,10 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   // which admin-screen sections the current (non-top) admin role can see —
   // falls back to DEFAULT_NON_TOP_SECTIONS (everything but Members/Tags,
   // matching the old fixed behavior) when no explicit choice was configured
-  const visibleAdminSections = useMemo<AdminSection[]>(() => {
-    if (isFullAdmin) return ADMIN_SECTIONS.map((s) => s.key)
-    if (!currentUser || currentUser.role === BASE_ROLE) return []
-    const sections = rolePermissions[currentUser.role] ?? DEFAULT_NON_TOP_SECTIONS
-    // dashboard is the redirect target for a disallowed section, so it must
-    // always stay reachable to avoid a redirect loop
-    return sections.includes('dashboard') ? sections : ['dashboard', ...sections]
-  }, [isFullAdmin, currentUser, rolePermissions])
+  const visibleAdminSections = useMemo<AdminSection[]>(
+    () => resolveVisibleAdminSections(currentUser?.role, roleLevels, rolePermissions),
+    [currentUser, roleLevels, rolePermissions],
+  )
 
   const adminProjects = useMemo(() => {
     if (isFullAdmin || !currentUser) return projects
@@ -2116,6 +2115,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     recurringRules,
     jobRequirements,
     setJobRequirements,
+    setDiscordWebhookUrl,
     addRecurringRule,
     removeRecurringRule,
     toggleRecurringRule,

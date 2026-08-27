@@ -7,12 +7,14 @@ import { AdminAssignments } from './admin-assignments'
 import { AdminApprovals } from './admin-approvals'
 import { AdminProjects } from './admin-projects'
 import { AdminMembers } from './admin-members'
+import { AdminAnalytics } from './admin-analytics'
 import { AdminTags } from './admin-tags'
 import { useOrbit } from '@/lib/orbit/store'
 import { OrbitMark } from '../primitives'
-import { LayoutDashboard, UserPlus, FileClock, FolderPlus, Users, Tags } from 'lucide-react'
+import type { AdminSection } from '@/lib/orbit/types'
+import { LayoutDashboard, UserPlus, FileClock, FolderPlus, Users, BarChart3, Tags } from 'lucide-react'
 
-type Section = 'dashboard' | 'assignments' | 'approvals' | 'projects' | 'members' | 'tags'
+type Section = AdminSection
 
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="size-4" /> },
@@ -20,6 +22,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: 'assignments', label: 'Assignments', icon: <UserPlus className="size-4" /> },
   { key: 'projects', label: 'Projects', icon: <FolderPlus className="size-4" /> },
   { key: 'members', label: 'Members', icon: <Users className="size-4" /> },
+  { key: 'analytics', label: 'Analytics', icon: <BarChart3 className="size-4" /> },
   { key: 'tags', label: 'Tags', icon: <Tags className="size-4" /> },
 ]
 
@@ -118,6 +121,7 @@ export function AdminScreen({ section }: { section: Section }) {
           {section === 'assignments' && <AdminAssignments />}
           {section === 'projects' && <AdminProjects />}
           {section === 'members' && <AdminMembers />}
+          {section === 'analytics' && <AdminAnalytics />}
           {section === 'tags' && <AdminTags />}
         </div>
       </div>

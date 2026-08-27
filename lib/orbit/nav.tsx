@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useCallback } from 'react'
 
-import type { Department } from './types'
+import type { AdminSection, Department } from './types'
 
 export type OutputTarget = 'all' | 'people' | 'projects'
 export type OutputView = 'workflow' | 'list' | 'calendar' | 'difficulty'
@@ -19,7 +19,7 @@ export type Screen =
   | { name: 'project'; id: string }
   | {
       name: 'admin'
-      section: 'dashboard' | 'assignments' | 'approvals' | 'projects' | 'members' | 'tags'
+      section: AdminSection
     }
 
 interface NavValue {
