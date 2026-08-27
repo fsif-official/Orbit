@@ -1174,18 +1174,13 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       }
       const today = new Date().toISOString().slice(0, 10)
       setTasks((prev) =>
-        prev.map((t) =>
-          t.id === id
-            ? {
-                ...t,
-                progress: trimmed,
-                progressHistory: [entry, ...(t.progressHistory ?? [])],
-                lastActivity: today,
-              }
-            : t,
-        ),
+        prev.map((t) => {
+          if (t.id !== id) return t
+          const nextHistory = [entry, ...(t.progressHistory ?? [])]
+          if (isRemoteConfigured) runRemote(remoteApi.updateProgress(id, trimmed, nextHistory))
+          return { ...t, progress: trimmed, progressHistory: nextHistory, lastActivity: today }
+        }),
       )
-      if (isRemoteConfigured) runRemote(remoteApi.updateProgress(id, trimmed))
     },
     [currentUserId, runRemote],
   )

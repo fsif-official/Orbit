@@ -18,6 +18,7 @@ import type {
   Priority,
   Project,
   ProjectTemplateTask,
+  ProgressEntry,
   Qualification,
   RecurringTaskRule,
   Role,
@@ -263,7 +264,7 @@ function mapTaskRow(r: Record<string, string>): Task {
     createdById: r.creator_id || undefined,
     createdAt: r.created_at || undefined,
     progress: r.progress_note || undefined,
-    progressHistory: [],
+    progressHistory: parseJsonArray<ProgressEntry>(r.progress_history_json) ?? [],
     pendingApproval: r.approval_status === '承認待ち',
     dependsOnIds: splitTags(r.depends_on_ids),
     visibility: r.visibility === '幹部' ? '幹部' : 'all',
@@ -469,8 +470,8 @@ export const remoteApi = {
       visibility: details.visibility,
       importance: details.importance,
     }),
-  updateProgress: (taskId: string, text: string) =>
-    postToGas('updateProgress', { taskId, text }),
+  updateProgress: (taskId: string, text: string, progressHistory: ProgressEntry[]) =>
+    postToGas('updateProgress', { taskId, text, progressHistory }),
   updateWill: (memberId: string, will: string[]) => postToGas('updateWill', { memberId, will }),
   updateJudgment: (memberId: string, judgment: string[]) =>
     postToGas('updateJudgment', { memberId, judgment }),

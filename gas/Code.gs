@@ -83,6 +83,7 @@ function doPost(e) {
       case 'updateProgress':
         result = updateTaskFields(body.taskId, {
           progress_note: body.text,
+          progress_history_json: JSON.stringify(body.progressHistory || []),
           last_activity: todayStr(),
         })
         break
