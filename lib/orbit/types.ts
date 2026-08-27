@@ -388,7 +388,22 @@ export interface TaskHistoryEntry {
   id: string
   at: string // ISO datetime
   byId: string
-  field: 'assignee' | 'deadline' | 'startDate' | 'priority' | 'status' | 'reviewer'
+  field:
+    | 'assignee'
+    | 'deadline'
+    | 'startDate'
+    | 'priority'
+    | 'status'
+    | 'reviewer'
+    | 'title'
+    | 'description'
+    | 'project'
+    | 'department'
+    | 'category'
+    | 'skills'
+    | 'difficulty'
+    | 'visibility'
+    | 'importance'
   from: string
   to: string
 }

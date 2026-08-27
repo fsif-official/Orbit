@@ -12,6 +12,7 @@ import type {
   AdminSection,
   CareerHistoryEntry,
   Competency,
+  Department,
   DevelopmentPlanEntry,
   EvaluationRecord,
   Member,
@@ -34,6 +35,7 @@ import type {
   TransferRecord,
   Priority,
   Difficulty,
+  TaskImportance,
   TaskInput,
   ParsedTask,
   ProgressEntry,
@@ -166,6 +168,21 @@ interface OrbitContextValue extends OrbitState {
   updateTaskStatus: (id: string, status: TaskStatus) => void
   updatePriority: (id: string, priority: Priority) => void
   updateDifficulty: (id: string, difficulty: Difficulty) => void
+  updateTaskDetails: (
+    id: string,
+    details: {
+      name: string
+      description: string
+      projectId: string
+      department: Department
+      category: string
+      skills: string[]
+      difficulty: Difficulty
+      priority: Priority
+      visibility: 'all' | '幹部'
+      importance: TaskImportance
+    },
+  ) => void
   updateProgress: (id: string, text: string) => void
   assignTask: (id: string, memberIds: string[]) => void
   updateWill: (memberId: string, will: string[]) => void
@@ -1082,6 +1099,59 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       if (isRemoteConfigured) runRemote(remoteApi.updateDifficulty(id, difficulty))
     },
     [runRemote],
+  )
+
+  // 管理者向けの一括編集（タイトル・詳細・プロジェクト・部門・カテゴリ・
+  // 要求スキル・難易度・優先度・公開範囲・重要度）— タスク登録後にこれらを
+  // 変更する手段がなかった分の対応。updateSchedule と同様、変更のあった
+  // フィールドごとに履歴へ記録する。
+  const updateTaskDetails = useCallback(
+    (
+      id: string,
+      details: {
+        name: string
+        description: string
+        projectId: string
+        department: Department
+        category: string
+        skills: string[]
+        difficulty: Difficulty
+        priority: Priority
+        visibility: 'all' | '幹部'
+        importance: TaskImportance
+      },
+    ) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          let next: Task = {
+            ...t,
+            name: details.name,
+            description: details.description || undefined,
+            projectId: details.projectId,
+            department: details.department,
+            category: details.category,
+            skills: details.skills,
+            difficulty: details.difficulty,
+            priority: details.priority,
+            visibility: details.visibility,
+            importance: details.importance,
+          }
+          next = appendHistory(next, 'title', t.name, details.name)
+          next = appendHistory(next, 'project', t.projectId, details.projectId)
+          next = appendHistory(next, 'department', t.department, details.department)
+          next = appendHistory(next, 'category', t.category, details.category)
+          next = appendHistory(next, 'skills', t.skills.join(','), details.skills.join(','))
+          next = appendHistory(next, 'difficulty', t.difficulty, details.difficulty)
+          next = appendHistory(next, 'priority', t.priority, details.priority)
+          next = appendHistory(next, 'visibility', t.visibility ?? 'all', details.visibility)
+          next = appendHistory(next, 'importance', t.importance ?? '一般', details.importance)
+          return next
+        }),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateTaskDetails(id, details))
+    },
+    [appendHistory, runRemote],
   )
 
   const updateProgress = useCallback(
@@ -2061,6 +2131,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateTaskStatus,
     updatePriority,
     updateDifficulty,
+    updateTaskDetails,
     updateProgress,
     assignTask,
     updateWill,
