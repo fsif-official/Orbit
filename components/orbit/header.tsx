@@ -115,9 +115,9 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between gap-4 px-4 sm:px-6">
+      <div className="mx-auto grid h-14 max-w-[1400px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 sm:px-6">
         {/* left */}
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex min-w-0 items-center gap-1">
           {canGoBack && (
             <button
               type="button"
@@ -167,7 +167,7 @@ export function Header() {
         </div>
 
         {/* right */}
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex min-w-0 items-center justify-end gap-1">
           <button
             type="button"
             onClick={toggle}
