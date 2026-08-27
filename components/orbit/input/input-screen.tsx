@@ -41,7 +41,6 @@ export function InputScreen() {
   const [phase, setPhase] = useState<Phase>('input')
   const [parsed, setParsed] = useState<ParsedTask[]>([])
   const [emptyError, setEmptyError] = useState(false)
-  const [noProjectError, setNoProjectError] = useState(false)
   const [parseFailed, setParseFailed] = useState(false)
   const [registered, setRegistered] = useState(false)
   const [historyInput, setHistoryInput] = useState<TaskInput | null>(null)
@@ -67,13 +66,10 @@ export function InputScreen() {
     }
     // プロジェクトが1つも登録されていないと、解析結果の project_id が
     // 空文字のまま登録されてしまう（docs/onboarding.md はプロジェクト登録を
-    // 先に済ませる想定だが、念のためここでも防ぐ）
-    if (projects.length === 0) {
-      setNoProjectError(true)
-      return
-    }
+    // 先に済ませる想定だが、念のためここでも防ぐ）。バナー自体は
+    // projects.length を直接見て表示するので、ここでは解析を止めるだけでよい
+    if (projects.length === 0) return
     setEmptyError(false)
-    setNoProjectError(false)
     setParseFailed(false)
     setPhase('parsing')
     setTimeout(() => {
@@ -172,7 +168,7 @@ export function InputScreen() {
                 )}
                 <Button
                   onClick={handleParse}
-                  disabled={phase === 'parsing'}
+                  disabled={phase === 'parsing' || projects.length === 0}
                   className="h-9 px-4"
                 >
                   {phase === 'parsing' ? (
@@ -197,7 +193,7 @@ export function InputScreen() {
               タスク内容を入力してください
             </p>
           )}
-          {noProjectError && (
+          {projects.length === 0 && (
             <p className="mt-2.5 flex items-center gap-1.5 text-sm text-destructive">
               <TriangleAlert className="size-4" />
               プロジェクトが1件も登録されていません。先にAdmin → Projectsから登録してください。
