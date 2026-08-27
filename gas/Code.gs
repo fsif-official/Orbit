@@ -198,6 +198,69 @@ function doPost(e) {
           project_ids: (body.projectIds || []).join(','),
         })
         break
+      // ---- タレントマネジメント ----
+      case 'updateSearchProfile':
+        result = updateMemberFields(body.memberId, {
+          years_of_experience:
+            body.yearsOfExperience === null || body.yearsOfExperience === undefined
+              ? ''
+              : body.yearsOfExperience,
+          has_management_experience: body.hasManagementExperience ? 'TRUE' : 'FALSE',
+          desired_areas: (body.desiredAreas || []).join(','),
+        })
+        break
+      case 'updateCareerHistory':
+        result = updateMemberFields(body.memberId, {
+          career_history_json: JSON.stringify(body.entries || []),
+        })
+        break
+      case 'updateQualifications':
+        result = updateMemberFields(body.memberId, {
+          qualifications_json: JSON.stringify(body.entries || []),
+        })
+        break
+      case 'updateEvaluationHistory':
+        result = updateMemberFields(body.memberId, {
+          evaluation_history_json: JSON.stringify(body.entries || []),
+        })
+        break
+      case 'updateTransferHistory':
+        result = updateMemberFields(body.memberId, {
+          transfer_history_json: JSON.stringify(body.entries || []),
+        })
+        break
+      case 'updateSkillLevels':
+        result = updateMemberFields(body.memberId, {
+          skill_levels_json: JSON.stringify(body.levels || []),
+        })
+        break
+      case 'updateCompetencies':
+        result = updateMemberFields(body.memberId, {
+          competencies_json: JSON.stringify(body.competencies || []),
+        })
+        break
+      case 'updateCareerGoals':
+        result = updateMemberFields(body.memberId, {
+          career_aspiration: body.careerAspiration || '',
+          desired_future_role: body.desiredFutureRole || '',
+          career_plan: body.careerPlan || '',
+        })
+        break
+      case 'updateTrainingHistory':
+        result = updateMemberFields(body.memberId, {
+          training_history_json: JSON.stringify(body.entries || []),
+        })
+        break
+      case 'updateDevelopmentPlan':
+        result = updateMemberFields(body.memberId, {
+          development_plan_json: JSON.stringify(body.entries || []),
+        })
+        break
+      case 'updateOneOnOnes':
+        result = updateMemberFields(body.memberId, {
+          one_on_ones_json: JSON.stringify(body.entries || []),
+        })
+        break
       default:
         throw new Error('Unknown action: ' + body.action)
     }

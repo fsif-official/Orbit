@@ -121,15 +121,13 @@ export interface Member {
   // this one grow. Set by an admin from the person page's 人材育成 tab.
   mentorId?: string
 
-  // ---- talent-management fields (reserved, not yet wired up) -------------
-  // Data shape for the タレントマネジメント epic requested alongside this
-  // batch (人材DB／スキル管理／人材検索／育成・キャリア／分析ダッシュボード).
-  // Scoped down for now to "prepare the full data structure only" — none of
-  // this is read/written by store.tsx, remote.ts, or gas/Code.gs yet, and
-  // there's no UI for it. Building the actual screens (人材検索フィルタ,
-  // スキルマップ, 育成計画/1on1エディタ, 人員分析ダッシュボード, etc.) is a
-  // separate, later piece of work. See TalentSearchFilters/
-  // JobTypeSkillRequirement below for the parts that aren't per-member.
+  // ---- talent-management fields (タレントマネジメント) --------------------
+  // 人材DB／スキル管理／人材検索／育成・キャリア — wired end-to-end (store.tsx
+  // actions, remote.ts mapping, gas/Code.gs columns) and surfaced on the
+  // person page's 経歴・キャリア tab and Admin → Membersの人材検索フィルタ.
+  // 分析ダッシュボード（人員構成・評価分布・スキル分布）was explicitly
+  // deferred — see JobTypeSkillRequirement below for the org-wide (not
+  // per-member) job-position requirement config, used by 人材育成タブ.
 
   // 人材検索: filterable attributes
   yearsOfExperience?: number
