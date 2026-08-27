@@ -532,6 +532,8 @@ export const remoteApi = {
     postToGas('updateProjectMembers', { projectId, memberIds }),
   updateProjectOwner: (projectId: string, ownerId: string | null) =>
     postToGas('updateProjectOwner', { projectId, ownerId }),
+  updateProjectDetails: (projectId: string, description: string, type: string | undefined) =>
+    postToGas('updateProjectDetails', { projectId, description, type }),
   updateComments: (taskId: string, comments: TaskComment[]) =>
     postToGas('updateComments', { taskId, comments }),
   updateEstimatedHours: (taskId: string, hours: number | null) =>

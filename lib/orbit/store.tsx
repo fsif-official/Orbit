@@ -189,6 +189,7 @@ interface OrbitContextValue extends OrbitState {
   removeProject: (projectId: string) => void
   updateProjectMembers: (projectId: string, memberIds: string[]) => void
   updateProjectOwner: (projectId: string, ownerId: string | null) => void
+  updateProjectDetails: (projectId: string, description: string, type?: string) => void
   addMember: (name: string, email: string, affiliation: string, role: string) => void
   removeMember: (memberId: string) => void
   updateNotify: (memberId: string, notify: boolean) => void
@@ -1429,6 +1430,18 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  // 概要・種類は作成後も編集できる（種類を変えても、既存タスクやテンプレートの
+  // 自動追加には影響しない — あくまで新規作成時の初期タスク生成に使われるだけ）
+  const updateProjectDetails = useCallback(
+    (projectId: string, description: string, type?: string) => {
+      setProjects((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, description, type: type || undefined } : p)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateProjectDetails(projectId, description, type))
+    },
+    [runRemote],
+  )
+
   const addMember = useCallback(
     (name: string, email: string, affiliation: string, role: string) => {
       const tempId = `m-${Math.random().toString(36).slice(2, 9)}`
@@ -2158,6 +2171,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     removeProject,
     updateProjectMembers,
     updateProjectOwner,
+    updateProjectDetails,
     addMember,
     removeMember,
     updateNotify,

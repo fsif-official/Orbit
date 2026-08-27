@@ -196,6 +196,12 @@ function doPost(e) {
       case 'updateProjectOwner':
         result = updateProjectFields(body.projectId, { owner_id: body.ownerId || '' })
         break
+      case 'updateProjectDetails':
+        result = updateProjectFields(body.projectId, {
+          description: body.description || '',
+          type: body.type || '',
+        })
+        break
       case 'updateAvatar':
         // choosing a color+initials avatar supersedes any uploaded picture
         result = updateMemberFields(body.memberId, {
