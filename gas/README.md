@@ -242,15 +242,23 @@ localStorageにのみ保存され、他の人の画面には反映されませ�
 
 設定すると、要求スキル・要求分野・カテゴリ・権限レベル・権限レベルごとの管理画面
 表示範囲・プロジェクトテンプレート・業務テンプレート・定期タスクルール・
-ポジション要件・要求分野の構成の追加や変更がその場でSettingsシートに書き込まれ
-（`key` 列は `skill_options` / `skill_field_options` / `category_options` /
+ポジション要件・要求分野の構成・団体メールの追加や変更がその場でSettingsシートに
+書き込まれ（`key` 列は `skill_options` / `skill_field_options` / `category_options` /
 `role_levels` / `role_permissions` / `project_templates` / `task_set_templates` /
-`recurring_rules` / `job_requirements` / `skill_field_skills` / `skill_field_threshold`、
-`value` 列はカンマ区切り文字列、`role_permissions` / `project_templates` /
-`task_set_templates` / `recurring_rules` / `job_requirements` / `skill_field_skills`
-のみJSON文字列、`skill_field_threshold` のみ0〜1の数値文字列）、次回以降は誰の画面を
-開いてもそこから読み込まれます。未設定の場合はこれまで通りブラウザごとの
-localStorageにフォールバックし、何も壊れません。
+`recurring_rules` / `job_requirements` / `skill_field_skills` / `skill_field_threshold` /
+`org_notification_emails`、`value` 列はカンマ区切り文字列、`role_permissions` /
+`project_templates` / `task_set_templates` / `recurring_rules` / `job_requirements` /
+`skill_field_skills` のみJSON文字列、`skill_field_threshold` のみ0〜1の数値文字列）、
+次回以降は誰の画面を開いてもそこから読み込まれます。未設定の場合はこれまで通り
+ブラウザごとのlocalStorageにフォールバックし、何も壊れません。
+
+`org_notification_emails`（団体メール）は、Admin → Tagsで幹部/事業責任者（=最下位
+以外の権限レベル、いわゆるfull admin）が登録・削除できる、カンマ区切りの共有配信先
+メールアドレスです。個々のメンバーの「新規タスク通知」設定に関わらず、
+`notifyAdmins()`（承認依頼・確認待ち・研修申請など全ての管理者向け通知の共通経路。
+gas/Code.gs参照）が送るメールに常に追加されます。この値はメールアドレスという
+公開して問題ない情報なので、次のDiscord Webhook URLとは異なり、この公開Settings
+シートにそのまま保存されます。
 
 > **注意**: Discord Webhook URL（次の「4.7」）は、上と同じ仕組みには**あえて
 > 乗せていません**。Settingsシートは他の3シートと同様に「ウェブに公開」の
@@ -311,6 +319,8 @@ secrets未設定のままだと従来通りローカルのモックデータで�
    管理者ロールのメンバー）に `email` が入力されているか確認してください。`notify_new_task`
    を`TRUE`にしたメンバーがいない場合は「一般以外のロールを持つ全員」にフォールバックする
    ため、そのフォールバック先にメールアドレスが入っていないと誰にも届きません。
+   個々のメンバー設定に依存させたくない場合は、Admin → Tagsの「団体メール」（§4.6）に
+   共有の配信先アドレスを登録しておくと、そちらには常に届きます。
 4. **MailAppの1日あたり送信上限を確認する** — 個人のGoogleアカウントは1日100通程度、
    Google Workspaceアカウントはプランに応じてより多い上限があります。Apps Scriptエディタで
    一時的に `function checkQuota() { console.log(MailApp.getRemainingDailyQuota()) }` を

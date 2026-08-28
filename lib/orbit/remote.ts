@@ -344,6 +344,9 @@ export interface RemoteSettings {
   skillFieldOptions: string[]
   skillFieldSkills: Record<string, string[]>
   skillFieldThreshold: number | null
+  // 団体メール — 個々のメンバーの通知設定に関わらず常に通知先へ含める
+  // 共有配信先アドレス（幹部/事業責任者=full adminがAdmin > Tagsで追加）
+  orgNotificationEmails: string[]
 }
 
 // Reads the optional "Settings" sheet (key,value rows) — see
@@ -409,6 +412,7 @@ export async function fetchSettings(): Promise<RemoteSettings> {
     skillFieldOptions: splitTags(byKey.get('skill_field_options')),
     skillFieldSkills,
     skillFieldThreshold: Number.isFinite(skillFieldThreshold) ? skillFieldThreshold : null,
+    orgNotificationEmails: splitTags(byKey.get('org_notification_emails')),
   }
 }
 

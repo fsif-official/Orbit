@@ -174,6 +174,9 @@ interface OrbitContextValue extends OrbitState {
   setSkillFieldSkills: (field: string, skills: string[]) => void
   skillFieldThreshold: number
   setSkillFieldThreshold: (threshold: number) => void
+  orgNotificationEmails: string[]
+  addOrgNotificationEmail: (email: string) => void
+  removeOrgNotificationEmail: (email: string) => void
   setDiscordWebhookUrl: (url: string) => void
   addRecurringRule: (rule: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => void
   removeRecurringRule: (ruleId: string) => void
@@ -304,6 +307,8 @@ const JOB_REQUIREMENTS_STORAGE_KEY = 'orbit-job-requirements'
 // keys, same pattern as jobRequirements
 const SKILL_FIELD_SKILLS_STORAGE_KEY = 'orbit-skill-field-skills'
 const SKILL_FIELD_THRESHOLD_STORAGE_KEY = 'orbit-skill-field-threshold'
+// 団体メール — org_notification_emails のローカルフォールバック
+const ORG_NOTIFICATION_EMAILS_STORAGE_KEY = 'orbit-org-notification-emails'
 // メンション通知の既読管理 — 端末ローカルのみ（サーバーには保存しない）。
 // currentUserId -> 既読にしたコメントID配列、で複数メンバーを同一端末で
 // 切り替えて使う場合にも既読状態が混ざらないようにする
@@ -426,6 +431,16 @@ function loadSkillFieldThreshold(): number | null {
   }
 }
 
+function loadOrgNotificationEmails(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(ORG_NOTIFICATION_EMAILS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
 function uniq(list: string[]): string[] {
   return Array.from(new Set(list.map((s) => s.trim()).filter(Boolean)))
 }
@@ -466,6 +481,10 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const [skillFieldThreshold, setSkillFieldThresholdState] = useState<number>(
     DEFAULT_SKILL_FIELD_THRESHOLD,
   )
+  // 団体メール — 幹部/事業責任者(=full admin)がAdmin > Tagsから登録する共有
+  // 配信先。個々のメンバーのnotify_new_task設定に関わらず常に通知される
+  // （gas/Code.gsのnotifyAdmins()参照）
+  const [orgNotificationEmails, setOrgNotificationEmails] = useState<string[]>([])
   const [onboardedIds, setOnboardedIds] = useState<Set<string>>(new Set())
   const [seenMentionIds, setSeenMentionIds] = useState<Record<string, string[]>>({})
   const [skillCertifiedEvent, setSkillCertifiedEvent] = useState<{
@@ -520,6 +539,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       if (Object.keys(savedFieldSkills).length) setSkillFieldSkillsState(savedFieldSkills)
       const savedThreshold = loadSkillFieldThreshold()
       if (savedThreshold !== null) setSkillFieldThresholdState(savedThreshold)
+      const savedOrgEmails = loadOrgNotificationEmails()
+      if (savedOrgEmails.length) setOrgNotificationEmails(savedOrgEmails)
     }
     setOnboardedIds(new Set(loadOnboardedIds()))
     setSeenMentionIds(loadSeenMentionIds())
@@ -566,6 +587,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         )
         setSkillFieldSkillsState(s.skillFieldSkills)
         setSkillFieldThresholdState(s.skillFieldThreshold ?? DEFAULT_SKILL_FIELD_THRESHOLD)
+        setOrgNotificationEmails(s.orgNotificationEmails)
         setRemoteError(null)
         setSettingsReady(true)
       })
@@ -616,6 +638,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           )
           setSkillFieldSkillsState(settings.skillFieldSkills)
           setSkillFieldThresholdState(settings.skillFieldThreshold ?? DEFAULT_SKILL_FIELD_THRESHOLD)
+          setOrgNotificationEmails(settings.orgNotificationEmails)
         }
         setRemoteError(null)
       })
@@ -811,6 +834,18 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     }
   }, [skillFieldThreshold, hydrated])
 
+  useEffect(() => {
+    if (!hydrated || isSettingsConfigured) return
+    try {
+      window.localStorage.setItem(
+        ORG_NOTIFICATION_EMAILS_STORAGE_KEY,
+        JSON.stringify(orgNotificationEmails),
+      )
+    } catch {
+      /* ignore */
+    }
+  }, [orgNotificationEmails, hydrated])
+
   // item 17: ポジション要件 — synced via the optional Settings sheet
   // (job_requirements key), same pattern as role_permissions/project_templates
   const setJobRequirements = useCallback(
@@ -875,6 +910,29 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       if (isSettingsConfigured) runRemote(remoteApi.updateSetting('skill_field_threshold', String(v)))
     },
     [runRemote],
+  )
+
+  // 団体メール — 個々のメンバーの通知設定に関わらず常に通知先へ含める共有
+  // 配信先アドレス。Admin > Tagsで幹部/事業責任者(=full admin)が管理する
+  const addOrgNotificationEmail = useCallback(
+    (email: string) => {
+      const v = email.trim()
+      if (!v || orgNotificationEmails.includes(v)) return
+      const next = [...orgNotificationEmails, v]
+      setOrgNotificationEmails(next)
+      if (isSettingsConfigured)
+        runRemote(remoteApi.updateSetting('org_notification_emails', next.join(',')))
+    },
+    [orgNotificationEmails, runRemote],
+  )
+  const removeOrgNotificationEmail = useCallback(
+    (email: string) => {
+      const next = orgNotificationEmails.filter((e) => e !== email)
+      setOrgNotificationEmails(next)
+      if (isSettingsConfigured)
+        runRemote(remoteApi.updateSetting('org_notification_emails', next.join(',')))
+    },
+    [orgNotificationEmails, runRemote],
   )
 
   // Discord Webhook 連携 — 確認待ち/期限超過タスクの通知先。書き込み専用:
@@ -2474,6 +2532,9 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     setSkillFieldSkills,
     skillFieldThreshold,
     setSkillFieldThreshold,
+    orgNotificationEmails,
+    addOrgNotificationEmail,
+    removeOrgNotificationEmail,
     setDiscordWebhookUrl,
     addRecurringRule,
     removeRecurringRule,

@@ -463,6 +463,7 @@ function notifyReview(taskId) {
 // notifyAdmins() を実際に一度呼び出してテストメールを送る。
 function debugNotifyTest() {
   console.log('MailApp remaining daily quota: ' + MailApp.getRemainingDailyQuota())
+  console.log('org_notification_emails: ' + JSON.stringify(orgNotificationEmails()))
 
   var sheet = getSheet(SHEET_MEMBERS)
   var headers = headerRow(sheet)
@@ -496,11 +497,42 @@ function debugNotifyTest() {
   console.log('debugNotifyTest: done — check the inbox (and spam folder) of the resolved recipient(s) above')
 }
 
+// 団体メール（Admin > Tagsで幹部/事業責任者が登録） — 個々のメンバーの
+// notify_new_task設定に関わらず、常に全ての管理者向け通知(notifyAdmins)の
+// 宛先に含める共有の配信先アドレス。Settingsシートの org_notification_emails
+// キーにカンマ区切りで保存される（公開情報のため機密扱いではない）。
+function orgNotificationEmails() {
+  var raw = getSettingValue('org_notification_emails')
+  if (!raw) return []
+  return raw
+    .split(',')
+    .map(function (s) {
+      return s.trim()
+    })
+    .filter(Boolean)
+}
+
+function uniqueEmails(list) {
+  var seen = {}
+  var out = []
+  list.forEach(function (email) {
+    var key = email.toLowerCase()
+    if (email && !seen[key]) {
+      seen[key] = true
+      out.push(email)
+    }
+  })
+  return out
+}
+
 function notifyAdmins(subject, body, preferredEmails) {
   try {
+    var orgEmails = orgNotificationEmails()
+
     if (preferredEmails && preferredEmails.length > 0) {
-      MailApp.sendEmail({ to: preferredEmails.join(','), subject: subject, body: body })
-      console.log('notifyAdmins: sent to preferredEmails ' + preferredEmails.join(','))
+      var to = uniqueEmails(preferredEmails.concat(orgEmails))
+      MailApp.sendEmail({ to: to.join(','), subject: subject, body: body })
+      console.log('notifyAdmins: sent to preferredEmails+org ' + to.join(','))
       return
     }
     var sheet = getSheet(SHEET_MEMBERS)
@@ -509,27 +541,29 @@ function notifyAdmins(subject, body, preferredEmails) {
     var emailCol = headers.indexOf('email')
     var notifyCol = headers.indexOf('notify_new_task')
     var roleCol = headers.indexOf('role')
-    if (emailCol === -1) {
-      console.warn('notifyAdmins: Members sheet has no "email" column — nothing sent')
+    if (emailCol === -1 && orgEmails.length === 0) {
+      console.warn('notifyAdmins: Members sheet has no "email" column and no org emails configured — nothing sent')
       return
     }
 
     var opted = []
     var reps = []
-    rows.forEach(function (r) {
-      var email = String(r[emailCol] || '').trim()
-      if (!email) return
-      var notify = notifyCol !== -1 && /^(true|1|yes)$/i.test(String(r[notifyCol] || ''))
-      if (notify) opted.push(email)
-      // any admin-level role (i.e. not blank and not "一般") counts as a
-      // fallback recipient — role names are freely renamed/added/removed
-      // from Admin > Tags, so this can't hardcode a specific role string
-      else if (roleCol !== -1 && String(r[roleCol] || '').trim() && r[roleCol] !== '一般') reps.push(email)
-    })
-    var recipients = opted.length > 0 ? opted : reps
+    if (emailCol !== -1) {
+      rows.forEach(function (r) {
+        var email = String(r[emailCol] || '').trim()
+        if (!email) return
+        var notify = notifyCol !== -1 && /^(true|1|yes)$/i.test(String(r[notifyCol] || ''))
+        if (notify) opted.push(email)
+        // any admin-level role (i.e. not blank and not "一般") counts as a
+        // fallback recipient — role names are freely renamed/added/removed
+        // from Admin > Tags, so this can't hardcode a specific role string
+        else if (roleCol !== -1 && String(r[roleCol] || '').trim() && r[roleCol] !== '一般') reps.push(email)
+      })
+    }
+    var recipients = uniqueEmails((opted.length > 0 ? opted : reps).concat(orgEmails))
     if (recipients.length === 0) {
       console.warn(
-        'notifyAdmins: no recipients resolved (no member has notify_new_task=TRUE and no non-一般 role member has an email) — nothing sent',
+        'notifyAdmins: no recipients resolved (no member has notify_new_task=TRUE, no non-一般 role member has an email, and no org email configured) — nothing sent',
       )
       return
     }

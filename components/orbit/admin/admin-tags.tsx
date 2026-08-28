@@ -37,10 +37,15 @@ export function AdminTags() {
     setSkillFieldSkills,
     skillFieldThreshold,
     setSkillFieldThreshold,
+    orgNotificationEmails,
+    addOrgNotificationEmail,
+    removeOrgNotificationEmail,
     setDiscordWebhookUrl,
+    isFullAdmin,
   } = useOrbit()
   const toast = useToast()
   const [webhookDraft, setWebhookDraft] = useState('')
+  const [orgEmailDraft, setOrgEmailDraft] = useState('')
   // every role level except the bottom (first) one is full admin with
   // unrestricted section access — only the bottom tier's visibility is
   // configurable (see store.tsx's isFullAdminMember/visibleAdminSections)
@@ -172,6 +177,53 @@ export function AdminTags() {
                 onChange={(next) => setRolePermissions(role, next)}
               />
             ))}
+          </div>
+        </div>
+      )}
+
+      {isFullAdmin && (
+        <div className="mt-6 rounded-lg border border-border bg-card p-4">
+          <SectionLabel>団体メール</SectionLabel>
+          <p className="mt-1 text-xs text-muted-foreground">
+            登録すると、承認依頼・確認待ちなどの管理者向け通知が、個々のメンバーの
+            「新規タスク通知」設定に関わらず常にここに追加で届きます。団体で共有している
+            メーリングリストやグループアドレスの登録を想定しています（幹部・事業責任者が管理）。
+          </p>
+          {!isRemoteConfigured && (
+            <p className="mt-1 text-xs text-warning">
+              スプレッドシート連携（GASのWeb App URL）が未設定のため、ここで保存しても
+              どこにも反映されません。
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {orgNotificationEmails.map((email) => (
+              <Tag key={email} onRemove={() => removeOrgNotificationEmail(email)}>
+                {email}
+              </Tag>
+            ))}
+            {orgNotificationEmails.length === 0 && (
+              <p className="text-sm text-muted-foreground">まだ登録されていません。</p>
+            )}
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              value={orgEmailDraft}
+              onChange={(e) => setOrgEmailDraft(e.target.value)}
+              placeholder="info@example.com"
+              type="email"
+              className="h-9 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+            />
+            <Button
+              className="h-9 shrink-0"
+              disabled={!orgEmailDraft.trim()}
+              onClick={() => {
+                addOrgNotificationEmail(orgEmailDraft.trim())
+                setOrgEmailDraft('')
+              }}
+            >
+              <Plus className="size-4" />
+              追加
+            </Button>
           </div>
         </div>
       )}
