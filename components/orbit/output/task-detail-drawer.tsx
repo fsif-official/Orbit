@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Drawer, Modal } from '../modal'
 import { Button } from '@/components/ui/button'
 import { useOrbit } from '@/lib/orbit/store'
@@ -22,6 +22,7 @@ import {
   type Member,
   type Priority,
   type Project,
+  type ScheduleResponseValue,
   type Task,
   type TaskHistoryEntry,
   type TaskImportance,
@@ -40,9 +41,13 @@ import {
   GitBranch,
   History as HistoryIcon,
   Link2,
+  Pause,
   Pencil,
+  Play,
   Plus,
+  RotateCcw,
   Search,
+  Timer,
   Trash2,
   TriangleAlert,
   UserCheck,
@@ -127,6 +132,8 @@ export function TaskDetailDrawer({
     updateEstimatedHours,
     updateActualHours,
     updateRetrospective,
+    setTaskSchedule,
+    respondToSchedule,
     removeTask,
     skillOptions,
     categoryOptions,
@@ -204,6 +211,12 @@ export function TaskDetailDrawer({
             onSaveRetrospective={(r) => {
               updateRetrospective(task.id, r)
               toast('振り返りを保存しました')
+            }}
+            onSetSchedule={(candidates, invitedIds) =>
+              setTaskSchedule(task.id, candidates, invitedIds)
+            }
+            onRespondSchedule={(responses) => {
+              if (currentUser) respondToSchedule(task.id, currentUser.id, responses)
             }}
           />
         )}
@@ -1106,6 +1119,8 @@ function DrawerBody({
   onUpdateEstimatedHours,
   onUpdateActualHours,
   onSaveRetrospective,
+  onSetSchedule,
+  onRespondSchedule,
 }: {
   task: Task
   currentUserId: string | null
@@ -1139,6 +1154,8 @@ function DrawerBody({
   onUpdateEstimatedHours: (hours: number | null) => void
   onUpdateActualHours: (hours: number | null) => void
   onSaveRetrospective: (retrospective: TaskRetrospective | null) => void
+  onSetSchedule: (candidates: { id: string; label: string }[], invitedIds: string[]) => void
+  onRespondSchedule: (responses: Record<string, ScheduleResponseValue>) => void
 }) {
   const overdue = isOverdue(task)
   const calendarUrl = googleCalendarUrl(task, {
@@ -1148,6 +1165,8 @@ function DrawerBody({
   })
   const isAssignee = !!currentUserId && task.assigneeIds.includes(currentUserId)
   const canChangeStatus = canChangeTaskStatus(isAdmin, isAssignee)
+  // 前提タスクが残っていると「完了」にはできない
+  const incompleteDeps = dependsOnTasks.filter((d) => d.status !== 'done')
   const canUpdateProgress = isAdmin || isAssignee
   const canManageBlocker = isAdmin || isAssignee
   const canManageDeliverables = isAdmin || isAssignee
@@ -1181,6 +1200,11 @@ function DrawerBody({
           <h2 id="task-drawer-title" className="text-lg font-semibold tracking-tight text-balance">
             {task.name}
           </h2>
+          {task.pendingApproval && (
+            <span className="shrink-0 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+              承認待ち
+            </span>
+          )}
           {task.visibility === '幹部' && (
             <span className="shrink-0 rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
               幹部限定
@@ -1383,6 +1407,16 @@ function DrawerBody({
               placeholder="未設定"
             />
           </Row>
+          {(isAdmin || isAssignee) && currentUserId && (
+            <Row label="計測">
+              <TimerWidget
+                taskId={task.id}
+                userId={currentUserId}
+                actualHours={task.actualHours}
+                onAddHours={(hours) => onUpdateActualHours((task.actualHours ?? 0) + hours)}
+              />
+            </Row>
+          )}
           <Row label="登録者">
             {creator ? (
               <span className="inline-flex items-center gap-2 text-sm">
@@ -1434,22 +1468,38 @@ function DrawerBody({
               ステータスを変更
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {statusOptions.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => onStatus(s)}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
-                    task.status === s
-                      ? 'border-primary bg-primary-muted text-accent-foreground'
-                      : 'border-border bg-card text-foreground hover:bg-secondary',
-                  )}
-                >
-                  <StatusDot status={s} />
-                  {STATUS_LABEL[s]}
-                </button>
-              ))}
+              {statusOptions.map((s) => {
+                const blocked = s === 'done' && incompleteDeps.length > 0
+                return (
+                  <button
+                    key={s}
+                    onClick={() => !blocked && onStatus(s)}
+                    disabled={blocked}
+                    title={
+                      blocked
+                        ? `前提タスクが未完了です：${incompleteDeps.map((d) => d.name).join('、')}`
+                        : undefined
+                    }
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
+                      blocked && 'cursor-not-allowed opacity-40',
+                      task.status === s
+                        ? 'border-primary bg-primary-muted text-accent-foreground'
+                        : 'border-border bg-card text-foreground hover:bg-secondary',
+                    )}
+                  >
+                    <StatusDot status={s} />
+                    {STATUS_LABEL[s]}
+                  </button>
+                )
+              })}
             </div>
+            {incompleteDeps.length > 0 && (
+              <p className="mt-1.5 flex items-center gap-1 text-[11px] text-warning">
+                <TriangleAlert className="size-3" />
+                前提タスクが未完了のため「完了」にできません：{incompleteDeps.map((d) => d.name).join('、')}
+              </p>
+            )}
             {!isAdmin && (
               <p className="mt-1.5 text-[11px] text-muted-foreground">
                 「確認待ち」にすると管理者に通知され、確認後「完了」になります。
@@ -1567,6 +1617,15 @@ function DrawerBody({
           )}
         </div>
 
+        <ScheduleSection
+          task={task}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          members={members}
+          onSetSchedule={onSetSchedule}
+          onRespondSchedule={onRespondSchedule}
+        />
+
         {/* Comments */}
         <div className="mt-6">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1606,13 +1665,46 @@ function DrawerBody({
             <p className="mb-3 text-sm text-muted-foreground">まだコメントがありません。</p>
           )}
           <div className="flex items-start gap-2">
-            <textarea
-              value={commentDraft}
-              onChange={(e) => setCommentDraft(e.target.value)}
-              rows={2}
-              placeholder="コメントを追加"
-              className="min-h-[52px] flex-1 resize-none rounded-lg border border-border bg-card px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
-            />
+            <div className="relative flex-1">
+              <textarea
+                value={commentDraft}
+                onChange={(e) => setCommentDraft(e.target.value)}
+                rows={2}
+                placeholder="コメントを追加（@名前でメンション）"
+                className="min-h-[52px] w-full resize-none rounded-lg border border-border bg-card px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
+              />
+              {(() => {
+                const match = /@([^\s@]*)$/.exec(commentDraft)
+                if (!match) return null
+                const q = match[1]
+                const candidates = members
+                  .filter((m) => {
+                    const label = m.displayName || m.name
+                    return q.length === 0 || label.toLowerCase().includes(q.toLowerCase())
+                  })
+                  .slice(0, 5)
+                if (candidates.length === 0) return null
+                return (
+                  <ul className="absolute bottom-full left-0 z-10 mb-1 w-48 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+                    {candidates.map((m) => (
+                      <li key={m.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const label = m.displayName || m.name
+                            setCommentDraft(commentDraft.slice(0, match.index) + `@${label} `)
+                          }}
+                          className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-sm hover:bg-secondary"
+                        >
+                          <Avatar member={m} size={16} />
+                          {m.displayName || m.name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              })()}
+            </div>
             <Button
               className="h-9 shrink-0"
               disabled={!commentDraft.trim()}
@@ -1698,6 +1790,383 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div className="flex items-start justify-between gap-4 border-b border-border/60 py-2.5 last:border-0">
       <dt className="shrink-0 pt-0.5 text-xs font-medium text-muted-foreground">{label}</dt>
       <dd className="text-right">{children}</dd>
+    </div>
+  )
+}
+
+interface TimerState {
+  runningSince: number | null // epoch ms、null なら停止中
+  accumulatedMs: number
+}
+
+function timerStorageKey(taskId: string, userId: string): string {
+  return `orbit-timer-${taskId}-${userId}`
+}
+
+function loadTimerState(taskId: string, userId: string): TimerState {
+  if (typeof window === 'undefined') return { runningSince: null, accumulatedMs: 0 }
+  try {
+    const raw = window.localStorage.getItem(timerStorageKey(taskId, userId))
+    return raw ? JSON.parse(raw) : { runningSince: null, accumulatedMs: 0 }
+  } catch {
+    return { runningSince: null, accumulatedMs: 0 }
+  }
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(totalSeconds / 3600)
+  const m = Math.floor((totalSeconds % 3600) / 60)
+  const s = totalSeconds % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(h)}:${pad(m)}:${pad(s)}`
+}
+
+// タスクに取り組んだ時間を計測するストップウォッチ。開始/経過時間はタスク×
+// 本人ごとにブラウザのlocalStorageへ保存されるので、ドロワーを閉じたり
+// リロードしても計測は止まらない
+function TimerWidget({
+  taskId,
+  userId,
+  onAddHours,
+}: {
+  taskId: string
+  userId: string
+  actualHours: number | undefined
+  onAddHours: (hours: number) => void
+}) {
+  const [state, setState] = useState<TimerState>(() => loadTimerState(taskId, userId))
+  const [, forceTick] = useState(0)
+
+  useEffect(() => {
+    setState(loadTimerState(taskId, userId))
+  }, [taskId, userId])
+
+  useEffect(() => {
+    if (!state.runningSince) return
+    const id = window.setInterval(() => forceTick((n) => n + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [state.runningSince])
+
+  const elapsedMs = state.accumulatedMs + (state.runningSince ? Date.now() - state.runningSince : 0)
+
+  const update = (next: TimerState) => {
+    setState(next)
+    try {
+      window.localStorage.setItem(timerStorageKey(taskId, userId), JSON.stringify(next))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const toggle = () => {
+    if (state.runningSince) {
+      update({ runningSince: null, accumulatedMs: elapsedMs })
+    } else {
+      update({ runningSince: Date.now(), accumulatedMs: state.accumulatedMs })
+    }
+  }
+
+  const reset = () => update({ runningSince: null, accumulatedMs: 0 })
+
+  const addToActual = () => {
+    if (elapsedMs <= 0) return
+    const hours = Math.round((elapsedMs / 3600000) * 100) / 100
+    onAddHours(hours)
+    reset()
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1 font-mono text-sm tabular-nums">
+        <Timer className="size-3.5 text-muted-foreground" />
+        {formatElapsed(elapsedMs)}
+      </span>
+      <button
+        type="button"
+        onClick={toggle}
+        className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+        aria-label={state.runningSince ? '一時停止' : '開始'}
+      >
+        {state.runningSince ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+      </button>
+      {elapsedMs > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={addToActual}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            実績に加算
+          </button>
+          <button
+            type="button"
+            onClick={reset}
+            className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+            aria-label="リセット"
+          >
+            <RotateCcw className="size-3.5" />
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+const SCHEDULE_RESPONSE_OPTIONS: ScheduleResponseValue[] = ['○', '△', '×']
+const SCHEDULE_RESPONSE_COLOR: Record<ScheduleResponseValue, string> = {
+  '○': 'bg-emerald-50 text-emerald-700',
+  '△': 'bg-amber-50 text-amber-700',
+  '×': 'bg-rose-50 text-rose-700',
+}
+
+// 日程調整ツール — 候補日時＋招待メンバーを作成者/管理者が設定し、招待者は
+// 候補ごとに〇×△で回答する。全員が回答し終えるとタスクは自動的に完了になる
+// （store.tsx の respondToSchedule）
+function ScheduleSection({
+  task,
+  currentUserId,
+  isAdmin,
+  members,
+  onSetSchedule,
+  onRespondSchedule,
+}: {
+  task: Task
+  currentUserId: string | null
+  isAdmin: boolean
+  members: Member[]
+  onSetSchedule: (candidates: { id: string; label: string }[], invitedIds: string[]) => void
+  onRespondSchedule: (responses: Record<string, ScheduleResponseValue>) => void
+}) {
+  const schedule = task.schedule
+  const canConfigure = isAdmin || task.createdById === currentUserId
+  const [configOpen, setConfigOpen] = useState(false)
+  const [candidateDraft, setCandidateDraft] = useState<{ id: string; label: string }[]>([])
+  const [inviteDraft, setInviteDraft] = useState<string[]>([])
+  const [dateTimeInput, setDateTimeInput] = useState('')
+  const [responseDraft, setResponseDraft] = useState<Record<string, ScheduleResponseValue>>({})
+
+  useEffect(() => {
+    setResponseDraft((currentUserId && schedule?.responses[currentUserId]) || {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.id, currentUserId])
+
+  if (!schedule && !canConfigure) return null
+
+  const openConfig = () => {
+    setCandidateDraft(schedule?.candidates ?? [])
+    setInviteDraft(schedule?.invitedIds ?? [])
+    setConfigOpen(true)
+  }
+
+  const addCandidate = () => {
+    if (!dateTimeInput) return
+    const d = new Date(dateTimeInput)
+    const label = `${d.getMonth() + 1}/${d.getDate()}(${'日月火水木金土'[d.getDay()]}) ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    setCandidateDraft((prev) => [
+      ...prev,
+      { id: `sc-${Math.random().toString(36).slice(2, 9)}`, label },
+    ])
+    setDateTimeInput('')
+  }
+
+  const saveConfig = () => {
+    if (candidateDraft.length === 0 || inviteDraft.length === 0) return
+    onSetSchedule(candidateDraft, inviteDraft)
+    setConfigOpen(false)
+  }
+
+  const isInvited = !!currentUserId && !!schedule?.invitedIds.includes(currentUserId)
+  const canRespond = isInvited && task.status !== 'done'
+  const canSubmitResponse =
+    !!schedule && schedule.candidates.every((c) => !!responseDraft[c.id])
+
+  return (
+    <div className="mt-6">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          日程調整
+        </div>
+        {canConfigure && (
+          <button
+            onClick={openConfig}
+            className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <Pencil className="size-3" />
+            {schedule ? '編集' : '設定'}
+          </button>
+        )}
+      </div>
+
+      {!schedule && !configOpen && (
+        <p className="text-sm text-muted-foreground">まだ設定されていません。</p>
+      )}
+
+      {schedule && !configOpen && (
+        <div className="flex flex-col gap-3">
+          {canRespond && (
+            <div className="rounded-lg border border-border bg-secondary/40 p-3">
+              <p className="mb-2 text-xs text-muted-foreground">候補ごとに回答してください</p>
+              <div className="flex flex-col gap-1.5">
+                {schedule.candidates.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between gap-2">
+                    <span className="text-sm">{c.label}</span>
+                    <div className="flex items-center gap-1">
+                      {SCHEDULE_RESPONSE_OPTIONS.map((v) => (
+                        <button
+                          key={v}
+                          onClick={() => setResponseDraft((prev) => ({ ...prev, [c.id]: v }))}
+                          className={cn(
+                            'flex size-7 items-center justify-center rounded-md text-sm font-semibold',
+                            responseDraft[c.id] === v
+                              ? SCHEDULE_RESPONSE_COLOR[v]
+                              : 'bg-secondary text-muted-foreground hover:bg-secondary/70',
+                          )}
+                        >
+                          {v}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <Button
+                className="mt-3 h-8 w-full"
+                disabled={!canSubmitResponse}
+                onClick={() => onRespondSchedule(responseDraft)}
+              >
+                回答を送信
+              </Button>
+            </div>
+          )}
+
+          <div className="overflow-x-auto orbit-scroll">
+            <table className="w-full min-w-[320px] border-collapse text-xs">
+              <thead>
+                <tr>
+                  <th className="border-b border-border px-1.5 py-1 text-left font-medium text-muted-foreground">
+                    候補
+                  </th>
+                  {schedule.invitedIds.map((mid) => {
+                    const m = members.find((mm) => mm.id === mid)
+                    return (
+                      <th
+                        key={mid}
+                        className="border-b border-border px-1.5 py-1 text-center font-medium text-muted-foreground"
+                      >
+                        {m?.displayName || m?.name || '不明'}
+                      </th>
+                    )
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {schedule.candidates.map((c) => (
+                  <tr key={c.id}>
+                    <td className="border-b border-border/60 px-1.5 py-1">{c.label}</td>
+                    {schedule.invitedIds.map((mid) => {
+                      const resp = schedule.responses[mid]?.[c.id]
+                      return (
+                        <td key={mid} className="border-b border-border/60 px-1.5 py-1 text-center">
+                          {resp ? (
+                            <span
+                              className={cn(
+                                'inline-flex size-5 items-center justify-center rounded font-semibold',
+                                SCHEDULE_RESPONSE_COLOR[resp],
+                              )}
+                            >
+                              {resp}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">未回答</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {task.status === 'done' && (
+            <p className="text-xs font-medium text-emerald-700">全員が回答し、タスクは完了になりました。</p>
+          )}
+        </div>
+      )}
+
+      {configOpen && (
+        <div className="rounded-lg border border-border bg-secondary/40 p-3">
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">候補日時</p>
+          <ul className="mb-2 flex flex-col gap-1">
+            {candidateDraft.map((c) => (
+              <li key={c.id} className="flex items-center justify-between gap-2 text-sm">
+                {c.label}
+                <button
+                  onClick={() => setCandidateDraft((prev) => prev.filter((x) => x.id !== c.id))}
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label="削除"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="mb-3 flex items-center gap-1.5">
+            <input
+              type="datetime-local"
+              value={dateTimeInput}
+              onChange={(e) => setDateTimeInput(e.target.value)}
+              className="h-8 flex-1 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-primary"
+            />
+            <button
+              onClick={addCandidate}
+              disabled={!dateTimeInput}
+              className="flex h-8 items-center justify-center gap-1 rounded-md border border-dashed border-border-strong px-2 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-40"
+            >
+              <Plus className="size-3.5" />
+              追加
+            </button>
+          </div>
+
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">招待するメンバー</p>
+          <div className="mb-3 flex max-h-40 flex-col gap-1 overflow-y-auto orbit-scroll">
+            {members.map((m) => {
+              const checked = inviteDraft.includes(m.id)
+              return (
+                <button
+                  key={m.id}
+                  onClick={() =>
+                    setInviteDraft((prev) =>
+                      checked ? prev.filter((id) => id !== m.id) : [...prev, m.id],
+                    )
+                  }
+                  className={cn(
+                    'flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-secondary',
+                    checked && 'bg-primary-muted',
+                  )}
+                >
+                  <Avatar member={m} size={20} />
+                  {m.displayName || m.name}
+                  {checked && <Check className="ml-auto size-3.5 text-primary" />}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" className="h-8" onClick={() => setConfigOpen(false)}>
+              キャンセル
+            </Button>
+            <Button
+              className="h-8"
+              disabled={candidateDraft.length === 0 || inviteDraft.length === 0}
+              onClick={saveConfig}
+            >
+              保存
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

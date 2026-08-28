@@ -42,6 +42,22 @@ export function deadlineLevel(task: Task): {
   return { level: 'none', label: '', days }
 }
 
+// 所属歴 — 「経験年数」（自己申告の概数）とは別に、joinedAt からの正確な
+// 期間を「○年○ヶ月」で表示する
+export function formatTenure(joinedAt: string): string {
+  const start = new Date(joinedAt)
+  const now = new Date()
+  let years = now.getFullYear() - start.getFullYear()
+  let months = now.getMonth() - start.getMonth()
+  if (now.getDate() < start.getDate()) months -= 1
+  if (months < 0) {
+    years -= 1
+    months += 12
+  }
+  if (years <= 0 && months <= 0) return '1ヶ月未満'
+  return years > 0 ? `${years}年${months}ヶ月` : `${months}ヶ月`
+}
+
 export function formatDateTime(iso?: string): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -58,6 +74,29 @@ export function daysSince(d?: string): number | null {
   const then = new Date(d).getTime()
   const now = new Date(todayStr()).getTime()
   return Math.round((now - then) / (1000 * 60 * 60 * 24))
+}
+
+// 前提タスク — a task listing others in dependsOnIds can't be marked 完了
+// until all of them are. Returns the still-open prerequisites (empty = OK
+// to complete); a dangling id (deleted task) is treated as satisfied since
+// there's nothing left to block on.
+export function incompletePrerequisites(task: Task, allTasks: Task[]): Task[] {
+  if (!task.dependsOnIds?.length) return []
+  const byId = new Map(allTasks.map((t) => [t.id, t]))
+  return task.dependsOnIds
+    .map((id) => byId.get(id))
+    .filter((t): t is Task => !!t && t.status !== 'done')
+}
+
+// コメント本文から @表示名 / @氏名 のメンションを抽出し、該当するメンバーID
+// を返す（重複なし）。表示名優先で、どちらの表記でもマッチする
+export function parseMentions(text: string, members: Member[]): string[] {
+  const ids = new Set<string>()
+  for (const m of members) {
+    const names = [m.displayName, m.name].filter((n): n is string => !!n)
+    if (names.some((name) => text.includes(`@${name}`))) ids.add(m.id)
+  }
+  return [...ids]
 }
 
 // Simple explainable skill matching — count of overlapping skills. Accepts
@@ -138,12 +177,25 @@ export function findSimilarTasks(
     .slice(0, 3)
 }
 
+// 手一杯なメンバーまでどんどん薦めると偏りが起きるため、現在の未完了タスク数
+// がこれ以上のメンバーはおすすめ候補から除外する（完全に選べなくなるわけでは
+// なく、「その他のメンバーから選ぶ」には引き続き表示される）。数字は仮
+const MAX_ACTIVE_TASKS_FOR_SUGGESTION = 5
+
 export function rankCandidates(
   task: { skills: string[]; assigneeIds?: string[] },
   members: Member[],
+  allTasks?: Task[],
 ): { member: Member; matches: string[] }[] {
   return members
     .filter((m) => !task.assigneeIds?.includes(m.id))
+    .filter((m) => {
+      if (!allTasks) return true
+      const active = allTasks.filter(
+        (t) => t.assigneeIds.includes(m.id) && t.status !== 'done',
+      ).length
+      return active < MAX_ACTIVE_TASKS_FOR_SUGGESTION
+    })
     .map((m) => ({ member: m, matches: matchSkills(task, m) }))
     .filter((c) => c.matches.length > 0)
     .sort((a, b) => b.matches.length - a.matches.length)

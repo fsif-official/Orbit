@@ -36,7 +36,7 @@ export function ParsedTaskCard({
   const [skillDraft, setSkillDraft] = useState('')
   const [addingCategory, setAddingCategory] = useState(false)
   const [categoryDraft, setCategoryDraft] = useState('')
-  const candidates = rankCandidates(task, members).slice(0, 3)
+  const candidates = rankCandidates(task, members, tasks).slice(0, 3)
 
   // おすすめカテゴリ: this project's most-used categories first, falling
   // back to 未分類 + the general option pool so there's always something

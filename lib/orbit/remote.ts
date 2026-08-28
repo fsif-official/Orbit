@@ -29,6 +29,7 @@ import type {
   TaskHistoryEntry,
   TaskImportance,
   TaskRetrospective,
+  TaskSchedule,
   TaskSetTemplate,
   TaskStatus,
   TrainingRecord,
@@ -202,6 +203,7 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
     unavailableDates: splitTags(r.unavailable_dates),
     reportsToId: r.reports_to_id || undefined,
     mentorId: r.mentor_id || undefined,
+    joinedAt: r.joined_at || undefined,
     // ---- タレントマネジメント (人材DB／スキル管理／人材検索／育成・キャリア) ----
     yearsOfExperience: r.years_of_experience ? Number(r.years_of_experience) : undefined,
     hasManagementExperience: /^(true|1|yes)$/i.test((r.has_management_experience || '').trim()),
@@ -277,6 +279,7 @@ function mapTaskRow(r: Record<string, string>): Task {
     actualHours: r.actual_hours ? Number(r.actual_hours) : undefined,
     retrospective: parseJsonObject<TaskRetrospective>(r.retrospective_json),
     importance: (r.importance || undefined) as Task['importance'],
+    schedule: parseJsonObject<TaskSchedule>(r.schedule_json),
   }
 }
 
@@ -506,6 +509,8 @@ export const remoteApi = {
     postToGas('updateMentor', { memberId, mentorId }),
   updateDisplayName: (memberId: string, displayName: string) =>
     postToGas('updateDisplayName', { memberId, displayName }),
+  updateJoinedAt: (memberId: string, joinedAt: string | null) =>
+    postToGas('updateJoinedAt', { memberId, joinedAt }),
   updateUnavailableDates: (memberId: string, dates: string[]) =>
     postToGas('updateUnavailableDates', { memberId, dates }),
   updateSchedule: (taskId: string, startDate: string | null, deadline: string | null) =>
@@ -552,12 +557,17 @@ export const remoteApi = {
     postToGas('updateProjectDetails', { projectId, description, type }),
   updateComments: (taskId: string, comments: TaskComment[]) =>
     postToGas('updateComments', { taskId, comments }),
+  notifyMention: (taskId: string, commentText: string, memberIds: string[]) =>
+    postToGas('notifyMention', { taskId, commentText, memberIds }),
   updateEstimatedHours: (taskId: string, hours: number | null) =>
     postToGas('updateEstimatedHours', { taskId, hours }),
   updateActualHours: (taskId: string, hours: number | null) =>
     postToGas('updateActualHours', { taskId, hours }),
   updateRetrospective: (taskId: string, retrospective: TaskRetrospective | null) =>
     postToGas('updateRetrospective', { taskId, retrospective }),
+  updateTaskSchedule: (taskId: string, schedule: TaskSchedule | null) =>
+    postToGas('updateTaskSchedule', { taskId, schedule }),
+  notifyScheduleResult: (taskId: string) => postToGas('notifyScheduleResult', { taskId }),
   // ---- タレントマネジメント ----
   updateSearchProfile: (
     memberId: string,
@@ -581,6 +591,10 @@ export const remoteApi = {
   ) => postToGas('updateCareerGoals', { memberId, ...goals }),
   updateTrainingHistory: (memberId: string, entries: TrainingRecord[]) =>
     postToGas('updateTrainingHistory', { memberId, entries }),
+  notifyTrainingRequest: (memberId: string, trainingName: string) =>
+    postToGas('notifyTrainingRequest', { memberId, trainingName }),
+  notifyTrainingDecision: (memberId: string, trainingName: string, approved: boolean) =>
+    postToGas('notifyTrainingDecision', { memberId, trainingName, approved }),
   updateDevelopmentPlan: (memberId: string, entries: DevelopmentPlanEntry[]) =>
     postToGas('updateDevelopmentPlan', { memberId, entries }),
   updateOneOnOnes: (memberId: string, entries: OneOnOneRecord[]) =>

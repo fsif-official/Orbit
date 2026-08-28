@@ -127,6 +127,9 @@ function doPost(e) {
       case 'updateDisplayName':
         result = updateMemberFields(body.memberId, { display_name: body.displayName || '' })
         break
+      case 'updateJoinedAt':
+        result = updateMemberFields(body.memberId, { joined_at: body.joinedAt || '' })
+        break
       case 'updateUnavailableDates':
         result = updateMemberFields(body.memberId, {
           unavailable_dates: (body.dates || []).join(','),
@@ -173,6 +176,10 @@ function doPost(e) {
           comments_json: JSON.stringify(body.comments || []),
         })
         break
+      case 'notifyMention':
+        notifyMention(body.taskId, body.commentText, body.memberIds || [])
+        result = { ok: true }
+        break
       case 'updateEstimatedHours':
         result = updateTaskFields(body.taskId, {
           estimated_hours: body.hours === null || body.hours === undefined ? '' : body.hours,
@@ -187,6 +194,15 @@ function doPost(e) {
         result = updateTaskFields(body.taskId, {
           retrospective_json: body.retrospective ? JSON.stringify(body.retrospective) : '',
         })
+        break
+      case 'updateTaskSchedule':
+        result = updateTaskFields(body.taskId, {
+          schedule_json: body.schedule ? JSON.stringify(body.schedule) : '',
+        })
+        break
+      case 'notifyScheduleResult':
+        notifyScheduleResult(body.taskId)
+        result = { ok: true }
         break
       case 'updateProjectMembers':
         result = updateProjectFields(body.projectId, {
@@ -282,6 +298,14 @@ function doPost(e) {
         result = updateMemberFields(body.memberId, {
           training_history_json: JSON.stringify(body.entries || []),
         })
+        break
+      case 'notifyTrainingRequest':
+        notifyTrainingRequest(body.memberId, body.trainingName)
+        result = { ok: true }
+        break
+      case 'notifyTrainingDecision':
+        notifyTrainingDecision(body.memberId, body.trainingName, body.approved)
+        result = { ok: true }
         break
       case 'updateDevelopmentPlan':
         result = updateMemberFields(body.memberId, {
@@ -423,7 +447,7 @@ function notifyReview(taskId) {
     )
     sendDiscordMessage('🔔 「' + task.title + '」が確認待ちになりました。')
   } catch (err) {
-    // best-effort
+    console.error('notifyReview failed: ' + err)
   }
 }
 
@@ -436,6 +460,7 @@ function notifyAdmins(subject, body, preferredEmails) {
   try {
     if (preferredEmails && preferredEmails.length > 0) {
       MailApp.sendEmail({ to: preferredEmails.join(','), subject: subject, body: body })
+      console.log('notifyAdmins: sent to preferredEmails ' + preferredEmails.join(','))
       return
     }
     var sheet = getSheet(SHEET_MEMBERS)
@@ -444,7 +469,10 @@ function notifyAdmins(subject, body, preferredEmails) {
     var emailCol = headers.indexOf('email')
     var notifyCol = headers.indexOf('notify_new_task')
     var roleCol = headers.indexOf('role')
-    if (emailCol === -1) return // no email column configured yet
+    if (emailCol === -1) {
+      console.warn('notifyAdmins: Members sheet has no "email" column — nothing sent')
+      return
+    }
 
     var opted = []
     var reps = []
@@ -459,11 +487,19 @@ function notifyAdmins(subject, body, preferredEmails) {
       else if (roleCol !== -1 && String(r[roleCol] || '').trim() && r[roleCol] !== '一般') reps.push(email)
     })
     var recipients = opted.length > 0 ? opted : reps
-    if (recipients.length === 0) return
+    if (recipients.length === 0) {
+      console.warn(
+        'notifyAdmins: no recipients resolved (no member has notify_new_task=TRUE and no non-一般 role member has an email) — nothing sent',
+      )
+      return
+    }
 
     MailApp.sendEmail({ to: recipients.join(','), subject: subject, body: body })
+    console.log('notifyAdmins: sent to ' + recipients.join(','))
   } catch (err) {
-    // swallow — a mail error shouldn't roll back the caller's action
+    // a mail error shouldn't roll back the caller's action, but log it so
+    // it's visible in Executions instead of failing completely silently
+    console.error('notifyAdmins failed: ' + err + (err && err.stack ? '\n' + err.stack : ''))
   }
 }
 
@@ -497,7 +533,152 @@ function reportsToEmails(assigneeIds) {
     })
     return emails
   } catch (err) {
+    console.error('reportsToEmails failed: ' + err)
     return []
+  }
+}
+
+// Resolves member ids to their email addresses (skips members with no
+// email on file). Used by notifyMention.
+function memberEmailsByIds(memberIds) {
+  try {
+    var sheet = getSheet(SHEET_MEMBERS)
+    var headers = headerRow(sheet)
+    var idCol = headers.indexOf('id')
+    var emailCol = headers.indexOf('email')
+    if (idCol === -1 || emailCol === -1) {
+      console.warn('memberEmailsByIds: Members sheet missing "id" or "email" column')
+      return []
+    }
+    var rows = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 0), headers.length).getValues()
+    var wanted = {}
+    ;(memberIds || []).forEach(function (id) {
+      wanted[String(id)] = true
+    })
+    var emails = []
+    rows.forEach(function (r) {
+      var email = String(r[emailCol] || '').trim()
+      if (wanted[String(r[idCol])] && email) emails.push(email)
+    })
+    return emails
+  } catch (err) {
+    console.error('memberEmailsByIds failed: ' + err)
+    return []
+  }
+}
+
+// Emails members who were @mentioned in a task comment. commentText is
+// passed straight from the client (not re-read from the sheet) since the
+// comment was just appended in the same request.
+function notifyMention(taskId, commentText, memberIds) {
+  try {
+    var task = findRow(SHEET_TASKS, taskId)
+    if (!task) return
+    var emails = memberEmailsByIds(memberIds)
+    if (emails.length === 0) {
+      console.warn('notifyMention: no email on file for memberIds ' + memberIds.join(',') + ' — nothing sent')
+      return
+    }
+    MailApp.sendEmail({
+      to: emails.join(','),
+      subject: '[Orbit] コメントでメンションされました',
+      body:
+        'タスク「' + task.title + '」のコメントであなたがメンションされました。\n\n' +
+        (commentText || '') +
+        '\n\nOrbitで確認してください。',
+    })
+    console.log('notifyMention: sent to ' + emails.join(','))
+  } catch (err) {
+    console.error('notifyMention failed: ' + err)
+  }
+}
+
+// 研修申請の承認フロー — a member requesting a training emails their
+// reports_to_id manager (falling back to notifyAdmins' default 代表 set),
+// mirroring notifyReview's routing.
+function notifyTrainingRequest(memberId, trainingName) {
+  try {
+    var member = findRow(SHEET_MEMBERS, memberId)
+    if (!member) return
+    var name = member.display_name || member.name || '不明'
+    notifyAdmins(
+      '[Orbit] 研修申請の承認をお願いします',
+      name + 'さんから研修「' + (trainingName || '') + '」の申請がありました。\n\nOrbitの人材育成タブから承認/却下してください。',
+      reportsToEmails([memberId]),
+    )
+    sendDiscordMessage('📚 ' + name + 'さんから研修「' + (trainingName || '') + '」の申請がありました。')
+  } catch (err) {
+    console.error('notifyTrainingRequest failed: ' + err)
+  }
+}
+
+// Notifies the requester once their training request is approved/rejected.
+function notifyTrainingDecision(memberId, trainingName, approved) {
+  try {
+    var emails = memberEmailsByIds([memberId])
+    if (emails.length === 0) {
+      console.warn('notifyTrainingDecision: no email on file for memberId ' + memberId + ' — nothing sent')
+      return
+    }
+    MailApp.sendEmail({
+      to: emails.join(','),
+      subject: '[Orbit] 研修申請が' + (approved ? '承認' : '却下') + 'されました',
+      body:
+        '研修「' + (trainingName || '') + '」の申請が' + (approved ? '承認' : '却下') + 'されました。\n\nOrbitで確認してください。',
+    })
+    console.log('notifyTrainingDecision: sent to ' + emails.join(','))
+  } catch (err) {
+    console.error('notifyTrainingDecision failed: ' + err)
+  }
+}
+
+// 日程調整ツール — 招待された全員が全候補への回答を終えたタイミングで
+// store.tsx から呼ばれ、作成者へ集計結果をメールする。
+function notifyScheduleResult(taskId) {
+  try {
+    var task = findRow(SHEET_TASKS, taskId)
+    if (!task || !task.creator_id) return
+    var emails = memberEmailsByIds([task.creator_id])
+    if (emails.length === 0) {
+      console.warn('notifyScheduleResult: no email on file for creator_id ' + task.creator_id + ' — nothing sent')
+      return
+    }
+
+    var schedule = null
+    try {
+      schedule = task.schedule_json ? JSON.parse(task.schedule_json) : null
+    } catch (e) {
+      schedule = null
+    }
+
+    var body = 'タスク「' + task.title + '」の日程調整で全員の回答が揃いました。\n\n'
+    if (schedule && schedule.candidates) {
+      var sheet = getSheet(SHEET_MEMBERS)
+      var headers = headerRow(sheet)
+      var idCol = headers.indexOf('id')
+      var nameCol = headers.indexOf('display_name')
+      var altNameCol = headers.indexOf('name')
+      var rows = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 0), headers.length).getValues()
+      var nameById = {}
+      rows.forEach(function (r) {
+        var id = String(r[idCol])
+        nameById[id] = (nameCol !== -1 && r[nameCol]) || (altNameCol !== -1 && r[altNameCol]) || id
+      })
+      schedule.candidates.forEach(function (c) {
+        body += '【' + c.label + '】\n'
+        ;(schedule.invitedIds || []).forEach(function (mid) {
+          var resp = schedule.responses && schedule.responses[mid] && schedule.responses[mid][c.id]
+          body += '  ' + (nameById[mid] || mid) + ': ' + (resp || '未回答') + '\n'
+        })
+      })
+    }
+    body += '\nOrbitで確認してください。'
+
+    MailApp.sendEmail({ to: emails.join(','), subject: '[Orbit] 日程調整の回答が揃いました', body: body })
+    console.log('notifyScheduleResult: sent to ' + emails.join(','))
+    sendDiscordMessage('🗓️ 「' + task.title + '」の日程調整で全員の回答が揃いました。')
+  } catch (err) {
+    console.error('notifyScheduleResult failed: ' + err)
   }
 }
 
@@ -524,7 +705,7 @@ function notifyScheduleChange(taskId) {
       reportsToEmails(assigneeIds),
     )
   } catch (err) {
-    // best-effort
+    console.error('notifyScheduleChange failed: ' + err)
   }
 }
 

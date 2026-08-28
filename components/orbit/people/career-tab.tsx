@@ -96,6 +96,8 @@ export function CareerTab({
   updateCompetencies,
   updateCareerGoals,
   updateTrainingHistory,
+  notifyTrainingRequest,
+  notifyTrainingDecision,
   updateDevelopmentPlan,
   updateOneOnOnes,
   currentUserId,
@@ -122,6 +124,8 @@ export function CareerTab({
     g: { careerAspiration: string; desiredFutureRole: string; careerPlan: string },
   ) => void
   updateTrainingHistory: (id: string, entries: TrainingRecord[]) => void
+  notifyTrainingRequest: (memberId: string, trainingName: string) => void
+  notifyTrainingDecision: (memberId: string, trainingName: string, approved: boolean) => void
   updateDevelopmentPlan: (id: string, entries: DevelopmentPlanEntry[]) => void
   updateOneOnOnes: (id: string, entries: OneOnOneRecord[]) => void
   currentUserId: string | null
@@ -141,7 +145,15 @@ export function CareerTab({
       <CompetenciesSection member={member} editable={editableAdminOnly} onSave={updateCompetencies} />
       <CareerHistorySection member={member} editable={editable} onSave={updateCareerHistory} rid={rid} />
       <QualificationsSection member={member} editable={editable} onSave={updateQualifications} rid={rid} />
-      <TrainingHistorySection member={member} editable={editable} onSave={updateTrainingHistory} rid={rid} />
+      <TrainingHistorySection
+        member={member}
+        editable={editable}
+        isAdmin={editableAdminOnly}
+        onSave={updateTrainingHistory}
+        onRequest={notifyTrainingRequest}
+        onDecide={notifyTrainingDecision}
+        rid={rid}
+      />
       <DevelopmentPlanSection
         member={member}
         editable={editable}
@@ -561,15 +573,30 @@ function QualificationsSection({
   )
 }
 
+const TRAINING_STATUS_BADGE: Record<
+  NonNullable<TrainingRecord['status']>,
+  { label: string; className: string }
+> = {
+  pending: { label: '承認待ち', className: 'bg-amber-50 text-amber-700' },
+  approved: { label: '承認済み', className: 'bg-emerald-50 text-emerald-700' },
+  rejected: { label: '却下', className: 'bg-rose-50 text-rose-700' },
+}
+
 function TrainingHistorySection({
   member,
   editable,
+  isAdmin,
   onSave,
+  onRequest,
+  onDecide,
   rid,
 }: {
   member: Member
   editable: boolean
+  isAdmin: boolean
   onSave: CareerTabProps['updateTrainingHistory']
+  onRequest: CareerTabProps['notifyTrainingRequest']
+  onDecide: CareerTabProps['notifyTrainingDecision']
   rid: () => string
 }) {
   const items = member.trainingHistory ?? []
@@ -577,27 +604,69 @@ function TrainingHistorySection({
   const [date, setDate] = useState('')
   const [provider, setProvider] = useState('')
 
+  // 管理者が直接記録する場合は即時「承認済み」、本人が申請する場合は
+  // 「承認待ち」で作成され、管理者に通知が飛ぶ（研修申請の承認フロー）
   const add = () => {
     const n = name.trim()
     if (!n || !date) return
-    onSave(member.id, [...items, { id: rid(), name: n, date, provider: provider.trim() || undefined }])
+    const status: TrainingRecord['status'] = isAdmin ? 'approved' : 'pending'
+    onSave(member.id, [
+      ...items,
+      { id: rid(), name: n, date, provider: provider.trim() || undefined, status },
+    ])
+    if (!isAdmin) onRequest(member.id, n)
     setName('')
     setDate('')
     setProvider('')
   }
 
+  const decide = (t: TrainingRecord, approved: boolean) => {
+    onSave(
+      member.id,
+      items.map((x) => (x.id === t.id ? { ...x, status: approved ? 'approved' : 'rejected' } : x)),
+    )
+    onDecide(member.id, t.name, approved)
+  }
+
   return (
-    <Section title="研修履歴">
+    <Section title="研修履歴" description={!isAdmin ? '申請すると管理者の承認後に確定します' : undefined}>
       <EntryList emptyText="まだ記録されていません">
-        {items.map((t) => (
-          <EntryRow key={t.id} editable={editable} onRemove={() => onSave(member.id, items.filter((x) => x.id !== t.id))}>
-            <span className="font-medium">{t.name}</span>
-            <span className="ml-2 text-xs text-muted-foreground">
-              {t.date}
-              {t.provider && ` / ${t.provider}`}
-            </span>
-          </EntryRow>
-        ))}
+        {items.map((t) => {
+          const status = t.status ?? 'approved'
+          const badge = TRAINING_STATUS_BADGE[status]
+          return (
+            <EntryRow key={t.id} editable={editable} onRemove={() => onSave(member.id, items.filter((x) => x.id !== t.id))}>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-medium">{t.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {t.date}
+                  {t.provider && ` / ${t.provider}`}
+                </span>
+                {status !== 'approved' && (
+                  <span className={cn('rounded-md px-1.5 py-0.5 text-[10px] font-semibold', badge.className)}>
+                    {badge.label}
+                  </span>
+                )}
+                {isAdmin && status === 'pending' && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => decide(t, true)}
+                      className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                    >
+                      承認
+                    </button>
+                    <button
+                      onClick={() => decide(t, false)}
+                      className="rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 hover:bg-rose-100"
+                    >
+                      却下
+                    </button>
+                  </div>
+                )}
+              </div>
+            </EntryRow>
+          )
+        })}
       </EntryList>
       {editable && (
         <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
@@ -610,7 +679,7 @@ function TrainingHistorySection({
             className="flex h-8 items-center justify-center gap-1 rounded-md border border-dashed border-border-strong text-xs text-muted-foreground hover:bg-secondary disabled:opacity-40"
           >
             <Plus className="size-3.5" />
-            追加
+            {isAdmin ? '追加' : '申請'}
           </button>
         </div>
       )}

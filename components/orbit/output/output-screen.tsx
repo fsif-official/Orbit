@@ -98,7 +98,7 @@ function loadHiddenProjects(userId: string | null | undefined): Set<string> {
 }
 
 export function OutputScreen() {
-  const { visibleTasks, archivedTasks, projects, currentUser } = useOrbit()
+  const { visibleTasks, archivedTasks, projects, currentUser, pendingTasks } = useOrbit()
   const { go } = useNav()
   const [targetOrder, setTargetOrder] = useState<Target[]>(() => loadTargetOrder(currentUser?.id))
   const [target, setTarget] = useState<Target>(() => loadTargetOrder(currentUser?.id)[0])
@@ -184,10 +184,15 @@ export function OutputScreen() {
   }
 
   // 自分が担当者に含まれるタスクだけを抜き出したもの。「自分」対象の土台になる
-  const myTasks = useMemo(
-    () => (currentUser ? visibleTasks.filter((t) => t.assigneeIds.includes(currentUser.id)) : []),
-    [visibleTasks, currentUser],
-  )
+  // 自分だけがアサインされている承認待ちタスクは、まだ組織全体には出さず
+  // 本人の「自分」タブにだけ先出しする（承認されれば visibleTasks に載り、
+  // ここでの二重表示は起きない）
+  const myTasks = useMemo(() => {
+    if (!currentUser) return []
+    const approved = visibleTasks.filter((t) => t.assigneeIds.includes(currentUser.id))
+    const mySelfAssignedPending = pendingTasks.filter((t) => t.assigneeIds.includes(currentUser.id))
+    return [...approved, ...mySelfAssignedPending]
+  }, [visibleTasks, pendingTasks, currentUser])
 
   // choosing a 表示 (view) jumps to whichever of 自分/一覧 was last active,
   // since the workflow/list/calendar/difficulty/dependency views only apply

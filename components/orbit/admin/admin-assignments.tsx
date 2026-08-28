@@ -31,11 +31,11 @@ export function AdminAssignments() {
       ) : (
         <div className="mt-6 grid gap-6 lg:grid-cols-[320px_1fr]">
           {/* Task list */}
-          <div className="rounded-lg border border-border bg-card">
+          <div className="rounded-lg border border-border bg-card lg:sticky lg:top-[4.5rem] lg:self-start">
             <div className="border-b border-border px-4 py-3 text-xs font-medium text-muted-foreground">
               未アサイン {unassigned.length}件
             </div>
-            <ul className="divide-y divide-border">
+            <ul className="max-h-[calc(100vh-14rem)] divide-y divide-border overflow-y-auto orbit-scroll">
               {unassigned.map((t) => (
                 <li key={t.id}>
                   <button
@@ -86,7 +86,7 @@ function MatchPanel({
   projectName: string
 }) {
   const toast = useToast()
-  const ranked = rankCandidates(task, members)
+  const ranked = rankCandidates(task, members, allTasks)
   const rankedIds = new Set(ranked.map((r) => r.member.id))
   const others = members.filter((m) => !rankedIds.has(m.id))
   const [showOthers, setShowOthers] = useState(false)

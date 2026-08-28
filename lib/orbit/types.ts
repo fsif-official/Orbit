@@ -128,6 +128,10 @@ export interface Member {
   // item 14: メンター/サポート担当の設定 — another member assigned to help
   // this one grow. Set by an admin from the person page's 人材育成 tab.
   mentorId?: string
+  // 所属開始日（YYYY-MM-DD）— 「経験年数」（社会人経験など、団体外の経験も
+  // 含む自己申告の数値）とは別物で、この団体に所属してからの正確な期間を
+  // 表示するために使う（person-detail.tsx の「所属歴」）
+  joinedAt?: string
 
   // ---- talent-management fields (タレントマネジメント) --------------------
   // 人材DB／スキル管理／人材検索／育成・キャリア — wired end-to-end (store.tsx
@@ -215,6 +219,10 @@ export interface TrainingRecord {
   name: string
   date: string // YYYY-MM-DD
   provider?: string
+  // 研修申請の承認フロー — 未設定（過去に直接記録された既存データ）は
+  // 承認済み扱い。自己申請すると 'pending' で作成され、管理者の承認/却下
+  // を待つ（person-detail.tsx の人材育成タブ／career-tab.tsx）
+  status?: 'pending' | 'approved' | 'rejected'
 }
 
 export interface DevelopmentPlanEntry {
@@ -379,12 +387,32 @@ export interface Task {
   // future task the similar-task heuristic (findSimilarTasks) flags as
   // related, so lessons carry over instead of being re-learned
   retrospective?: TaskRetrospective
+  // 日程調整ツール — see TaskSchedule
+  schedule?: TaskSchedule
 }
 
 export interface TaskRetrospective {
   good: string
   bad: string
   improve: string
+}
+
+// 日程調整ツール — 候補日時を作成者が用意し、招待されたメンバーそれぞれが
+// 候補ごとに〇×△で回答する。全員が全候補に回答し終えると自動的に
+// status: 'done' になり、作成者へ結果とともに通知が飛ぶ
+// （store.tsx の respondToSchedule / gas/Code.gs の notifyScheduleResult）
+export type ScheduleResponseValue = '○' | '×' | '△'
+
+export interface ScheduleCandidate {
+  id: string
+  label: string // 自由記述（例: "8/30(土) 14:00〜"）— 細かい日時表現に対応するため
+}
+
+export interface TaskSchedule {
+  candidates: ScheduleCandidate[]
+  invitedIds: string[]
+  // memberId -> candidateId -> response
+  responses: Record<string, Record<string, ScheduleResponseValue>>
 }
 
 export interface TaskDeliverable {
@@ -422,6 +450,9 @@ export interface TaskComment {
   text: string
   byId: string
   at: string // ISO datetime
+  // @表示名/@氏名 表記から自動抽出されたメンバーID（任意）— コメント投稿時に
+  // メール通知される（gas/Code.gs の notifyMention）
+  mentionedIds?: string[]
 }
 
 // Result of natural-language parsing, before approval
@@ -493,8 +524,12 @@ export interface NotificationItem {
   id: string
   // 'stale' = item 10 (SLA/放置アラート): 確認待ちが3日以上、または
   // 進行中タスクの更新が7日以上ない場合に表示
-  kind: 'approval' | 'review' | 'deadline' | 'stale'
+  // 'mention' = コメントで@メンションされた（未読のみ表示。store.tsxの
+  // seenMentionIds/markMentionSeen参照）
+  kind: 'approval' | 'review' | 'deadline' | 'stale' | 'mention'
   title: string
   detail: string
   taskId: string
+  // kind: 'mention' のときだけ設定 — 既読化(markMentionSeen)に使う
+  commentId?: string
 }
