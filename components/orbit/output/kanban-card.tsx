@@ -41,7 +41,7 @@ export function KanbanCard({
   dragging?: boolean
   fields?: Set<KanbanCardField>
 }) {
-  const { getMember, getProject } = useOrbit()
+  const { getMember, getProject, currentUser } = useOrbit()
   const { go } = useNav()
   const assignees = task.assigneeIds.map((id) => getMember(id)).filter(Boolean) as Array<
     NonNullable<ReturnType<typeof getMember>>
@@ -57,6 +57,10 @@ export function KanbanCard({
   const showDifficulty = fields.has('difficulty')
   const showMetaRow = showAssignee || showDeadline
   const showBottomRow = showCategory || showDifficulty
+  const needsScheduleResponse =
+    !!currentUser &&
+    !!task.schedule?.invitedIds.includes(currentUser.id) &&
+    task.schedule.candidates.some((c) => !task.schedule!.responses[currentUser.id]?.[c.id])
 
   return (
     <div
@@ -90,7 +94,25 @@ export function KanbanCard({
         </div>
       )}
 
-      <p className="text-sm font-medium leading-snug text-pretty">{task.name}</p>
+      <p className="flex items-center gap-1.5 text-sm font-medium leading-snug text-pretty">
+        {task.name}
+        {task.pendingApproval && (
+          <span
+            className="shrink-0 rounded-md bg-amber-50 px-1 py-0.5 text-[10px] font-semibold text-amber-700"
+            title="管理者の承認待ちです。承認されるまで自分以外には表示されません"
+          >
+            承認待ち
+          </span>
+        )}
+        {needsScheduleResponse && (
+          <span
+            className="shrink-0 rounded-md bg-primary-muted px-1 py-0.5 text-[10px] font-semibold text-primary"
+            title="日程調整への回答が必要です"
+          >
+            要回答
+          </span>
+        )}
+      </p>
 
       {showMetaRow && (
         <div className="mt-3 flex items-center justify-between gap-2">

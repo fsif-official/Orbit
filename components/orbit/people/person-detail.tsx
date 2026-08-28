@@ -93,6 +93,8 @@ export function PersonDetail({ id }: { id: string }) {
     updateCompetencies,
     updateCareerGoals,
     updateTrainingHistory,
+    notifyTrainingRequest,
+    notifyTrainingDecision,
     updateDevelopmentPlan,
     updateOneOnOnes,
   } = useOrbit()
@@ -670,6 +672,8 @@ export function PersonDetail({ id }: { id: string }) {
           updateCompetencies={updateCompetencies}
           updateCareerGoals={updateCareerGoals}
           updateTrainingHistory={updateTrainingHistory}
+          notifyTrainingRequest={notifyTrainingRequest}
+          notifyTrainingDecision={notifyTrainingDecision}
           updateDevelopmentPlan={updateDevelopmentPlan}
           updateOneOnOnes={updateOneOnOnes}
           currentUserId={currentUser?.id ?? null}

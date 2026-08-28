@@ -10,6 +10,7 @@ import { Avatar, OrbitMark } from './primitives'
 import { cn } from '@/lib/utils'
 import {
   ArrowLeft,
+  AtSign,
   Bell,
   CalendarClock,
   CheckCheck,
@@ -36,6 +37,7 @@ export function Header() {
     refreshAll,
     visibleTasks: tasks,
     getProject,
+    markMentionSeen,
   } = useOrbit()
   const { screen, go, goBack, canGoBack } = useNav()
   const { theme, toggle } = useTheme()
@@ -274,6 +276,7 @@ export function Header() {
                       key={n.id}
                       onClick={() => {
                         setNotifOpen(false)
+                        if (n.kind === 'mention' && n.commentId) markMentionSeen(n.commentId)
                         if (n.taskId) openTask(n.taskId)
                       }}
                       className="flex w-full items-start gap-2.5 border-b border-border px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-secondary"
@@ -282,6 +285,8 @@ export function Header() {
                         <CalendarClock className="mt-0.5 size-4 shrink-0 text-warning" />
                       ) : n.kind === 'stale' ? (
                         <Clock className="mt-0.5 size-4 shrink-0 text-warning" />
+                      ) : n.kind === 'mention' ? (
+                        <AtSign className="mt-0.5 size-4 shrink-0 text-primary" />
                       ) : (
                         <ClipboardCheck className="mt-0.5 size-4 shrink-0 text-primary" />
                       )}

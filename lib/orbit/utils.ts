@@ -88,6 +88,17 @@ export function incompletePrerequisites(task: Task, allTasks: Task[]): Task[] {
     .filter((t): t is Task => !!t && t.status !== 'done')
 }
 
+// コメント本文から @表示名 / @氏名 のメンションを抽出し、該当するメンバーID
+// を返す（重複なし）。表示名優先で、どちらの表記でもマッチする
+export function parseMentions(text: string, members: Member[]): string[] {
+  const ids = new Set<string>()
+  for (const m of members) {
+    const names = [m.displayName, m.name].filter((n): n is string => !!n)
+    if (names.some((name) => text.includes(`@${name}`))) ids.add(m.id)
+  }
+  return [...ids]
+}
+
 // Simple explainable skill matching — count of overlapping skills. Accepts
 // any task-shaped object with a skills list, so this also works for a
 // ParsedTask (pre-creation, in the INPUT screen) as well as a saved Task.

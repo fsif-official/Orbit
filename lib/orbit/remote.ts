@@ -29,6 +29,7 @@ import type {
   TaskHistoryEntry,
   TaskImportance,
   TaskRetrospective,
+  TaskSchedule,
   TaskSetTemplate,
   TaskStatus,
   TrainingRecord,
@@ -278,6 +279,7 @@ function mapTaskRow(r: Record<string, string>): Task {
     actualHours: r.actual_hours ? Number(r.actual_hours) : undefined,
     retrospective: parseJsonObject<TaskRetrospective>(r.retrospective_json),
     importance: (r.importance || undefined) as Task['importance'],
+    schedule: parseJsonObject<TaskSchedule>(r.schedule_json),
   }
 }
 
@@ -555,12 +557,17 @@ export const remoteApi = {
     postToGas('updateProjectDetails', { projectId, description, type }),
   updateComments: (taskId: string, comments: TaskComment[]) =>
     postToGas('updateComments', { taskId, comments }),
+  notifyMention: (taskId: string, commentText: string, memberIds: string[]) =>
+    postToGas('notifyMention', { taskId, commentText, memberIds }),
   updateEstimatedHours: (taskId: string, hours: number | null) =>
     postToGas('updateEstimatedHours', { taskId, hours }),
   updateActualHours: (taskId: string, hours: number | null) =>
     postToGas('updateActualHours', { taskId, hours }),
   updateRetrospective: (taskId: string, retrospective: TaskRetrospective | null) =>
     postToGas('updateRetrospective', { taskId, retrospective }),
+  updateTaskSchedule: (taskId: string, schedule: TaskSchedule | null) =>
+    postToGas('updateTaskSchedule', { taskId, schedule }),
+  notifyScheduleResult: (taskId: string) => postToGas('notifyScheduleResult', { taskId }),
   // ---- タレントマネジメント ----
   updateSearchProfile: (
     memberId: string,
@@ -584,6 +591,10 @@ export const remoteApi = {
   ) => postToGas('updateCareerGoals', { memberId, ...goals }),
   updateTrainingHistory: (memberId: string, entries: TrainingRecord[]) =>
     postToGas('updateTrainingHistory', { memberId, entries }),
+  notifyTrainingRequest: (memberId: string, trainingName: string) =>
+    postToGas('notifyTrainingRequest', { memberId, trainingName }),
+  notifyTrainingDecision: (memberId: string, trainingName: string, approved: boolean) =>
+    postToGas('notifyTrainingDecision', { memberId, trainingName, approved }),
   updateDevelopmentPlan: (memberId: string, entries: DevelopmentPlanEntry[]) =>
     postToGas('updateDevelopmentPlan', { memberId, entries }),
   updateOneOnOnes: (memberId: string, entries: OneOnOneRecord[]) =>

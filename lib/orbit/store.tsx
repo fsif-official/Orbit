@@ -22,12 +22,15 @@ import type {
   RecurringTaskRule,
   Qualification,
   Role,
+  ScheduleCandidate,
+  ScheduleResponseValue,
   SkillLevel,
   Task,
   TaskComment,
   TaskDeliverable,
   TaskHistoryEntry,
   TaskRetrospective,
+  TaskSchedule,
   TaskSetTemplate,
   TaskSetTemplateItem,
   TaskStatus,
@@ -54,7 +57,7 @@ import {
   remoteApi,
   toCreatePayload,
 } from './remote'
-import { daysSince, deadlineLevel, incompletePrerequisites } from './utils'
+import { daysSince, deadlineLevel, incompletePrerequisites, parseMentions } from './utils'
 
 type Mode = 'input' | 'output'
 type RemoteStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -184,6 +187,7 @@ interface OrbitContextValue extends OrbitState {
   skipOnboarding: () => void
   skillCertifiedEvent: { memberName: string; skill: string } | null
   clearSkillCertifiedEvent: () => void
+  markMentionSeen: (commentId: string) => void
   login: (userId: string) => void
   logout: () => void
   setMode: (m: Mode) => void
@@ -250,6 +254,8 @@ interface OrbitContextValue extends OrbitState {
     goals: { careerAspiration: string; desiredFutureRole: string; careerPlan: string },
   ) => void
   updateTrainingHistory: (memberId: string, entries: TrainingRecord[]) => void
+  notifyTrainingRequest: (memberId: string, trainingName: string) => void
+  notifyTrainingDecision: (memberId: string, trainingName: string, approved: boolean) => void
   updateDevelopmentPlan: (memberId: string, entries: DevelopmentPlanEntry[]) => void
   updateOneOnOnes: (memberId: string, entries: OneOnOneRecord[]) => void
   updateDisplayName: (memberId: string, displayName: string) => void
@@ -262,6 +268,8 @@ interface OrbitContextValue extends OrbitState {
   updateEstimatedHours: (id: string, hours: number | null) => void
   updateActualHours: (id: string, hours: number | null) => void
   updateRetrospective: (id: string, retrospective: TaskRetrospective | null) => void
+  setTaskSchedule: (id: string, candidates: ScheduleCandidate[], invitedIds: string[]) => void
+  respondToSchedule: (id: string, memberId: string, responses: Record<string, ScheduleResponseValue>) => void
   addDeliverable: (id: string, label: string, url: string) => void
   removeDeliverable: (id: string, deliverableId: string) => void
   addComment: (id: string, text: string) => void
@@ -296,6 +304,10 @@ const JOB_REQUIREMENTS_STORAGE_KEY = 'orbit-job-requirements'
 // keys, same pattern as jobRequirements
 const SKILL_FIELD_SKILLS_STORAGE_KEY = 'orbit-skill-field-skills'
 const SKILL_FIELD_THRESHOLD_STORAGE_KEY = 'orbit-skill-field-threshold'
+// メンション通知の既読管理 — 端末ローカルのみ（サーバーには保存しない）。
+// currentUserId -> 既読にしたコメントID配列、で複数メンバーを同一端末で
+// 切り替えて使う場合にも既読状態が混ざらないようにする
+const SEEN_MENTIONS_STORAGE_KEY = 'orbit-seen-mention-ids'
 
 function loadState(): Partial<OrbitState> | null {
   if (typeof window === 'undefined') return null
@@ -329,6 +341,16 @@ function loadOnboardedIds(): string[] {
     return raw ? JSON.parse(raw) : []
   } catch {
     return []
+  }
+}
+
+function loadSeenMentionIds(): Record<string, string[]> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(SEEN_MENTIONS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
   }
 }
 
@@ -445,6 +467,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     DEFAULT_SKILL_FIELD_THRESHOLD,
   )
   const [onboardedIds, setOnboardedIds] = useState<Set<string>>(new Set())
+  const [seenMentionIds, setSeenMentionIds] = useState<Record<string, string[]>>({})
   const [skillCertifiedEvent, setSkillCertifiedEvent] = useState<{
     memberName: string
     skill: string
@@ -499,6 +522,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       if (savedThreshold !== null) setSkillFieldThresholdState(savedThreshold)
     }
     setOnboardedIds(new Set(loadOnboardedIds()))
+    setSeenMentionIds(loadSeenMentionIds())
     setHydrated(true)
   }, [])
 
@@ -1829,6 +1853,22 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  // 研修申請の承認フロー — 通知だけを担う軽量アクション。実体の状態変更
+  // (追加/承認/却下) は career-tab.tsx から updateTrainingHistory を直接
+  // 呼んで行い、こちらは best-effort のメール通知のみを追加で発火する
+  const notifyTrainingRequest = useCallback(
+    (memberId: string, trainingName: string) => {
+      if (isRemoteConfigured) runRemote(remoteApi.notifyTrainingRequest(memberId, trainingName))
+    },
+    [runRemote],
+  )
+  const notifyTrainingDecision = useCallback(
+    (memberId: string, trainingName: string, approved: boolean) => {
+      if (isRemoteConfigured) runRemote(remoteApi.notifyTrainingDecision(memberId, trainingName, approved))
+    },
+    [runRemote],
+  )
+
   const updateDevelopmentPlan = useCallback(
     (memberId: string, entries: DevelopmentPlanEntry[]) => {
       setMembers((prev) =>
@@ -1967,6 +2007,61 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  // 日程調整ツール — 候補日時＋招待メンバーを設定する（作成者/管理者）
+  const setTaskSchedule = useCallback(
+    (id: string, candidates: ScheduleCandidate[], invitedIds: string[]) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          const schedule: TaskSchedule = {
+            candidates,
+            invitedIds,
+            responses: t.schedule?.responses ?? {},
+          }
+          if (isRemoteConfigured) runRemote(remoteApi.updateTaskSchedule(id, schedule))
+          return { ...t, schedule }
+        }),
+      )
+    },
+    [runRemote],
+  )
+
+  // 招待されたメンバーが候補ごとに〇×△で回答する。招待者全員が全候補に
+  // 回答し終えたら自動的にタスクを完了にし、作成者へ結果を通知する
+  const respondToSchedule = useCallback(
+    (id: string, memberId: string, responses: Record<string, ScheduleResponseValue>) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id || !t.schedule) return t
+          const nextSchedule: TaskSchedule = {
+            ...t.schedule,
+            responses: { ...t.schedule.responses, [memberId]: responses },
+          }
+          const allDone = t.schedule.invitedIds.every((mid) => {
+            const r = nextSchedule.responses[mid]
+            return !!r && t.schedule!.candidates.every((c) => !!r[c.id])
+          })
+          if (isRemoteConfigured) runRemote(remoteApi.updateTaskSchedule(id, nextSchedule))
+          if (allDone && t.status !== 'done') {
+            const today = new Date().toISOString().slice(0, 10)
+            if (isRemoteConfigured) {
+              runRemote(remoteApi.updateTaskStatus(id, 'done'))
+              runRemote(remoteApi.notifyScheduleResult(id))
+            }
+            return appendHistory(
+              { ...t, schedule: nextSchedule, status: 'done', completedDate: today, lastActivity: today },
+              'status',
+              STATUS_LABEL[t.status],
+              STATUS_LABEL.done,
+            )
+          }
+          return { ...t, schedule: nextSchedule }
+        }),
+      )
+    },
+    [runRemote, appendHistory],
+  )
+
   // 成果物リンク管理（item 12） — Drive/Canva/GitHub/Figma等へのリンクを
   // タスクに複数紐付ける
   const addDeliverable = useCallback(
@@ -2006,22 +2101,30 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     (id: string, text: string) => {
       const trimmed = text.trim()
       if (!trimmed) return
+      // 自分自身への@メンションは通知しない
+      const mentionedIds = parseMentions(trimmed, members).filter((mid) => mid !== currentUserId)
       const entry: TaskComment = {
         id: `cm-${Math.random().toString(36).slice(2, 9)}`,
         text: trimmed,
         byId: currentUserId ?? '',
         at: new Date().toISOString(),
+        mentionedIds: mentionedIds.length > 0 ? mentionedIds : undefined,
       }
       setTasks((prev) =>
         prev.map((t) => {
           if (t.id !== id) return t
           const next = [...(t.comments ?? []), entry]
-          if (isRemoteConfigured) runRemote(remoteApi.updateComments(id, next))
+          if (isRemoteConfigured) {
+            runRemote(remoteApi.updateComments(id, next))
+            if (mentionedIds.length > 0) {
+              runRemote(remoteApi.notifyMention(id, trimmed, mentionedIds))
+            }
+          }
           return { ...t, comments: next }
         }),
       )
     },
-    [currentUserId, runRemote],
+    [currentUserId, runRemote, members],
   )
   const removeComment = useCallback(
     (id: string, commentId: string) => {
@@ -2106,6 +2209,24 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       return next
     })
   }, [currentUserId, persistOnboarded])
+
+  const markMentionSeen = useCallback(
+    (commentId: string) => {
+      if (!currentUserId) return
+      setSeenMentionIds((prev) => {
+        const mine = prev[currentUserId] ?? []
+        if (mine.includes(commentId)) return prev
+        const next = { ...prev, [currentUserId]: [...mine, commentId] }
+        try {
+          window.localStorage.setItem(SEEN_MENTIONS_STORAGE_KEY, JSON.stringify(next))
+        } catch {
+          /* ignore */
+        }
+        return next
+      })
+    },
+    [currentUserId],
+  )
 
   const clearSkillCertifiedEvent = useCallback(() => setSkillCertifiedEvent(null), [])
 
@@ -2260,8 +2381,25 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           })
         }
       })
+    // コメントの@メンション — 自分がメンションされていて、まだ既読にしていない
+    // ものだけ表示（既読管理は端末ローカルの seenMentionIds/markMentionSeen）
+    const seenHere = seenMentionIds[currentUser.id] ?? []
+    visibleTasks.forEach((t) => {
+      t.comments?.forEach((c) => {
+        if (!c.mentionedIds?.includes(currentUser.id)) return
+        if (seenHere.includes(c.id)) return
+        items.push({
+          id: `mention-${c.id}`,
+          kind: 'mention',
+          title: `メンション: ${t.name}`,
+          detail: c.text.length > 40 ? `${c.text.slice(0, 40)}…` : c.text,
+          taskId: t.id,
+          commentId: c.id,
+        })
+      })
+    })
     return items
-  }, [currentUser, adminPendingTasks, adminTasks, visibleTasks])
+  }, [currentUser, adminPendingTasks, adminTasks, visibleTasks, seenMentionIds])
 
   const projectTypes = useMemo(
     () =>
@@ -2346,6 +2484,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     skipOnboarding,
     skillCertifiedEvent,
     clearSkillCertifiedEvent,
+    markMentionSeen,
     login,
     logout,
     setMode,
@@ -2386,6 +2525,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateCompetencies,
     updateCareerGoals,
     updateTrainingHistory,
+    notifyTrainingRequest,
+    notifyTrainingDecision,
     updateDevelopmentPlan,
     updateOneOnOnes,
     updateDisplayName,
@@ -2398,6 +2539,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateEstimatedHours,
     updateActualHours,
     updateRetrospective,
+    setTaskSchedule,
+    respondToSchedule,
     addDeliverable,
     removeDeliverable,
     addComment,
