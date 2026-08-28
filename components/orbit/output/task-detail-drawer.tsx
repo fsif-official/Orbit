@@ -1148,6 +1148,8 @@ function DrawerBody({
   })
   const isAssignee = !!currentUserId && task.assigneeIds.includes(currentUserId)
   const canChangeStatus = canChangeTaskStatus(isAdmin, isAssignee)
+  // 前提タスクが残っていると「完了」にはできない
+  const incompleteDeps = dependsOnTasks.filter((d) => d.status !== 'done')
   const canUpdateProgress = isAdmin || isAssignee
   const canManageBlocker = isAdmin || isAssignee
   const canManageDeliverables = isAdmin || isAssignee
@@ -1434,22 +1436,38 @@ function DrawerBody({
               ステータスを変更
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {statusOptions.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => onStatus(s)}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
-                    task.status === s
-                      ? 'border-primary bg-primary-muted text-accent-foreground'
-                      : 'border-border bg-card text-foreground hover:bg-secondary',
-                  )}
-                >
-                  <StatusDot status={s} />
-                  {STATUS_LABEL[s]}
-                </button>
-              ))}
+              {statusOptions.map((s) => {
+                const blocked = s === 'done' && incompleteDeps.length > 0
+                return (
+                  <button
+                    key={s}
+                    onClick={() => !blocked && onStatus(s)}
+                    disabled={blocked}
+                    title={
+                      blocked
+                        ? `前提タスクが未完了です：${incompleteDeps.map((d) => d.name).join('、')}`
+                        : undefined
+                    }
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
+                      blocked && 'cursor-not-allowed opacity-40',
+                      task.status === s
+                        ? 'border-primary bg-primary-muted text-accent-foreground'
+                        : 'border-border bg-card text-foreground hover:bg-secondary',
+                    )}
+                  >
+                    <StatusDot status={s} />
+                    {STATUS_LABEL[s]}
+                  </button>
+                )
+              })}
             </div>
+            {incompleteDeps.length > 0 && (
+              <p className="mt-1.5 flex items-center gap-1 text-[11px] text-warning">
+                <TriangleAlert className="size-3" />
+                前提タスクが未完了のため「完了」にできません：{incompleteDeps.map((d) => d.name).join('、')}
+              </p>
+            )}
             {!isAdmin && (
               <p className="mt-1.5 text-[11px] text-muted-foreground">
                 「確認待ち」にすると管理者に通知され、確認後「完了」になります。

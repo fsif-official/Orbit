@@ -11,7 +11,7 @@ import { EditableTags } from '@/components/orbit/editable-tags'
 import { CareerTab } from '@/components/orbit/people/career-tab'
 import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
-import { formatDeadlineFull, memberSkillFieldProgress } from '@/lib/orbit/utils'
+import { formatDeadlineFull, formatTenure, memberSkillFieldProgress } from '@/lib/orbit/utils'
 import { isAdminRole, BASE_ROLE, DIFFICULTY_LABEL } from '@/lib/orbit/types'
 import { AVATAR_PALETTE } from '@/lib/orbit/remote'
 import { cn } from '@/lib/utils'
@@ -71,6 +71,7 @@ export function PersonDetail({ id }: { id: string }) {
     getProject,
     getProjectMembers,
     updateDisplayName,
+    updateJoinedAt,
     toggleUnavailableDate,
     updateAvatar,
     uploadAvatarImage,
@@ -100,6 +101,7 @@ export function PersonDetail({ id }: { id: string }) {
   const [tab, setTab] = useState<Tab>('overview')
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
+  const [editingJoinedAt, setEditingJoinedAt] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [avatarOpen, setAvatarOpen] = useState(false)
   const [initialsDraft, setInitialsDraft] = useState('')
@@ -312,6 +314,35 @@ export function PersonDetail({ id }: { id: string }) {
           <p className="mt-0.5 text-sm text-muted-foreground">
             {member.role !== BASE_ROLE ? member.role : member.affiliation}
           </p>
+          <div className="mt-1 flex items-center gap-1.5">
+            {editingJoinedAt ? (
+              <input
+                autoFocus
+                type="date"
+                defaultValue={member.joinedAt ?? ''}
+                onBlur={(e) => {
+                  updateJoinedAt(member.id, e.target.value || null)
+                  setEditingJoinedAt(false)
+                }}
+                className="h-6 rounded-md border border-primary bg-card px-1.5 text-xs outline-none"
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {member.joinedAt
+                  ? `所属歴：${formatTenure(member.joinedAt)}（${member.joinedAt}〜）`
+                  : '所属開始日が未設定です'}
+              </p>
+            )}
+            {(isSelf || isAdmin) && !editingJoinedAt && (
+              <button
+                onClick={() => setEditingJoinedAt(true)}
+                className="rounded-md p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                aria-label="所属開始日を編集"
+              >
+                <Pencil className="size-3" />
+              </button>
+            )}
+          </div>
         </div>
         <div className="text-right">
           <p className="text-2xl font-semibold tabular-nums">{active}</p>

@@ -54,7 +54,7 @@ import {
   remoteApi,
   toCreatePayload,
 } from './remote'
-import { daysSince, deadlineLevel } from './utils'
+import { daysSince, deadlineLevel, incompletePrerequisites } from './utils'
 
 type Mode = 'input' | 'output'
 type RemoteStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -175,6 +175,10 @@ interface OrbitContextValue extends OrbitState {
   addRecurringRule: (rule: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => void
   removeRecurringRule: (ruleId: string) => void
   toggleRecurringRule: (ruleId: string) => void
+  updateRecurringRule: (
+    ruleId: string,
+    fields: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>,
+  ) => void
   needsOnboarding: boolean
   completeOnboarding: (will: string[]) => void
   skipOnboarding: () => void
@@ -249,6 +253,7 @@ interface OrbitContextValue extends OrbitState {
   updateDevelopmentPlan: (memberId: string, entries: DevelopmentPlanEntry[]) => void
   updateOneOnOnes: (memberId: string, entries: OneOnOneRecord[]) => void
   updateDisplayName: (memberId: string, displayName: string) => void
+  updateJoinedAt: (memberId: string, joinedAt: string | null) => void
   toggleUnavailableDate: (memberId: string, date: string) => void
   updateSchedule: (id: string, startDate: string | null, deadline: string | null) => void
   updateDependsOn: (id: string, dependsOnIds: string[]) => void
@@ -1145,6 +1150,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     },
     [runRemote],
   )
+  const updateRecurringRule = useCallback(
+    (ruleId: string, fields: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => {
+      setRecurringRules((prev) => {
+        const next = prev.map((r) => (r.id === ruleId ? { ...r, ...fields } : r))
+        if (isSettingsConfigured)
+          runRemote(remoteApi.updateSetting('recurring_rules', JSON.stringify(next)))
+        return next
+      })
+    },
+    [runRemote],
+  )
 
   const addTasksFromInput = useCallback(
     (text: string, parsed: ParsedTask[]) => {
@@ -1366,6 +1382,13 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
 
   const updateTaskStatus = useCallback(
     (id: string, status: TaskStatus) => {
+      // 前提タスクが完了していない限り、このタスクは完了にできない — UI側
+      // (task-detail-drawer/kanban-board) でも事前に防いでいるが、ここでも
+      // 最終防衛としてブロックする
+      if (status === 'done') {
+        const task = tasks.find((t) => t.id === id)
+        if (task && incompletePrerequisites(task, tasks).length > 0) return
+      }
       const today = new Date().toISOString().slice(0, 10)
       const updated = tasks.map((t) =>
         t.id === id
@@ -1831,6 +1854,17 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         prev.map((m) => (m.id === memberId ? { ...m, displayName: trimmed || undefined } : m)),
       )
       if (isRemoteConfigured) runRemote(remoteApi.updateDisplayName(memberId, trimmed))
+    },
+    [runRemote],
+  )
+
+  // 所属開始日 — 「経験年数」とは別に、この団体での所属歴を正確に表示するため
+  const updateJoinedAt = useCallback(
+    (memberId: string, joinedAt: string | null) => {
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, joinedAt: joinedAt ?? undefined } : m)),
+      )
+      if (isRemoteConfigured) runRemote(remoteApi.updateJoinedAt(memberId, joinedAt))
     },
     [runRemote],
   )
@@ -2306,6 +2340,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     addRecurringRule,
     removeRecurringRule,
     toggleRecurringRule,
+    updateRecurringRule,
     needsOnboarding,
     completeOnboarding,
     skipOnboarding,
@@ -2354,6 +2389,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateDevelopmentPlan,
     updateOneOnOnes,
     updateDisplayName,
+    updateJoinedAt,
     toggleUnavailableDate,
     updateSchedule,
     updateDependsOn,

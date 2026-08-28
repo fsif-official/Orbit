@@ -202,6 +202,7 @@ function mapMemberRow(r: Record<string, string>, projectsById: Map<string, Proje
     unavailableDates: splitTags(r.unavailable_dates),
     reportsToId: r.reports_to_id || undefined,
     mentorId: r.mentor_id || undefined,
+    joinedAt: r.joined_at || undefined,
     // ---- タレントマネジメント (人材DB／スキル管理／人材検索／育成・キャリア) ----
     yearsOfExperience: r.years_of_experience ? Number(r.years_of_experience) : undefined,
     hasManagementExperience: /^(true|1|yes)$/i.test((r.has_management_experience || '').trim()),
@@ -506,6 +507,8 @@ export const remoteApi = {
     postToGas('updateMentor', { memberId, mentorId }),
   updateDisplayName: (memberId: string, displayName: string) =>
     postToGas('updateDisplayName', { memberId, displayName }),
+  updateJoinedAt: (memberId: string, joinedAt: string | null) =>
+    postToGas('updateJoinedAt', { memberId, joinedAt }),
   updateUnavailableDates: (memberId: string, dates: string[]) =>
     postToGas('updateUnavailableDates', { memberId, dates }),
   updateSchedule: (taskId: string, startDate: string | null, deadline: string | null) =>

@@ -128,6 +128,10 @@ export interface Member {
   // item 14: メンター/サポート担当の設定 — another member assigned to help
   // this one grow. Set by an admin from the person page's 人材育成 tab.
   mentorId?: string
+  // 所属開始日（YYYY-MM-DD）— 「経験年数」（社会人経験など、団体外の経験も
+  // 含む自己申告の数値）とは別物で、この団体に所属してからの正確な期間を
+  // 表示するために使う（person-detail.tsx の「所属歴」）
+  joinedAt?: string
 
   // ---- talent-management fields (タレントマネジメント) --------------------
   // 人材DB／スキル管理／人材検索／育成・キャリア — wired end-to-end (store.tsx

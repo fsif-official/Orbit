@@ -127,6 +127,9 @@ function doPost(e) {
       case 'updateDisplayName':
         result = updateMemberFields(body.memberId, { display_name: body.displayName || '' })
         break
+      case 'updateJoinedAt':
+        result = updateMemberFields(body.memberId, { joined_at: body.joinedAt || '' })
+        break
       case 'updateUnavailableDates':
         result = updateMemberFields(body.memberId, {
           unavailable_dates: (body.dates || []).join(','),

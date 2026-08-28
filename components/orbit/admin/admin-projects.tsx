@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useToast } from '@/components/orbit/toast'
 import { Avatar, SectionLabel, Tag } from '@/components/orbit/primitives'
@@ -44,6 +44,7 @@ export function AdminProjects() {
     addRecurringRule,
     removeRecurringRule,
     toggleRecurringRule,
+    updateRecurringRule,
     isFullAdmin,
   } = useOrbit()
   const toast = useToast()
@@ -52,6 +53,7 @@ export function AdminProjects() {
   const [managingMembersOf, setManagingMembersOf] = useState<Project | null>(null)
   const [managingOwnerOf, setManagingOwnerOf] = useState<Project | null>(null)
   const [editingDetailsOf, setEditingDetailsOf] = useState<Project | null>(null)
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
   const [detailsDraft, setDetailsDraft] = useState({ description: '', type: '' })
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -356,15 +358,29 @@ export function AdminProjects() {
           毎週・毎月発生する業務を自動生成します。サーバー側の定期実行はないため、該当日に誰かが
           Orbitを開いたタイミングで1回だけ生成されます。
         </p>
-        <RecurringRuleForm projects={projects} onAdd={addRecurringRule} />
+        <RecurringRuleForm
+          projects={projects}
+          editingRule={recurringRules.find((r) => r.id === editingRuleId) ?? null}
+          onAdd={addRecurringRule}
+          onUpdate={(fields) => {
+            if (editingRuleId) updateRecurringRule(editingRuleId, fields)
+            setEditingRuleId(null)
+          }}
+          onCancelEdit={() => setEditingRuleId(null)}
+        />
         <ul className="mt-4 flex flex-col gap-1.5">
           {recurringRules.map((r) => (
             <RecurringRuleRow
               key={r.id}
               rule={r}
+              editing={editingRuleId === r.id}
               projectName={projects.find((p) => p.id === r.projectId)?.name ?? ''}
+              onEdit={() => setEditingRuleId(r.id)}
               onToggle={() => toggleRecurringRule(r.id)}
-              onRemove={() => removeRecurringRule(r.id)}
+              onRemove={() => {
+                if (editingRuleId === r.id) setEditingRuleId(null)
+                removeRecurringRule(r.id)
+              }}
             />
           ))}
           {recurringRules.length === 0 && (
@@ -715,6 +731,16 @@ function TemplateTypeCard({
   )
 }
 
+const EMPTY_TASK_SET_DRAFT = {
+  name: '',
+  department: DEPARTMENTS[0] as Department,
+  category: '',
+  skills: '',
+  difficulty: DIFFICULTY_LABEL[0] as Difficulty,
+  priority: '中' as Priority,
+  dependsOn: [] as string[],
+}
+
 function TaskSetTemplateCard({
   template,
   onChangeItems,
@@ -724,38 +750,69 @@ function TaskSetTemplateCard({
   onChangeItems: (items: TaskSetTemplateItem[]) => void
   onRemove: () => void
 }) {
-  const [draft, setDraft] = useState({
-    name: '',
-    department: DEPARTMENTS[0] as Department,
-    category: '',
-    skills: '',
-    difficulty: DIFFICULTY_LABEL[0] as Difficulty,
-    priority: '中' as Priority,
-    dependsOn: [] as string[],
-  })
+  const [draft, setDraft] = useState(EMPTY_TASK_SET_DRAFT)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const itemName = (id: string) => template.items.find((i) => i.id === id)?.name ?? '?'
 
-  const addItem = () => {
+  const startEdit = (item: TaskSetTemplateItem) => {
+    setEditingId(item.id)
+    setDraft({
+      name: item.name,
+      department: item.department,
+      category: item.category,
+      skills: item.skills.join(','),
+      difficulty: item.difficulty,
+      priority: item.priority,
+      dependsOn: item.dependsOn ?? [],
+    })
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setDraft(EMPTY_TASK_SET_DRAFT)
+  }
+
+  const submitItem = () => {
     if (!draft.name.trim()) return
-    const newItem: TaskSetTemplateItem = {
-      id: `tsti-${Math.random().toString(36).slice(2, 9)}`,
-      name: draft.name.trim(),
-      department: draft.department,
-      category: draft.category.trim(),
-      skills: draft.skills
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-      difficulty: draft.difficulty,
-      priority: draft.priority,
-      dependsOn: draft.dependsOn.length > 0 ? draft.dependsOn : undefined,
+    const skills = draft.skills.split(',').map((s) => s.trim()).filter(Boolean)
+    const dependsOn = draft.dependsOn.length > 0 ? draft.dependsOn : undefined
+    if (editingId) {
+      onChangeItems(
+        template.items.map((i) =>
+          i.id === editingId
+            ? {
+                ...i,
+                name: draft.name.trim(),
+                department: draft.department,
+                category: draft.category.trim(),
+                skills,
+                difficulty: draft.difficulty,
+                priority: draft.priority,
+                dependsOn,
+              }
+            : i,
+        ),
+      )
+      setEditingId(null)
+    } else {
+      const newItem: TaskSetTemplateItem = {
+        id: `tsti-${Math.random().toString(36).slice(2, 9)}`,
+        name: draft.name.trim(),
+        department: draft.department,
+        category: draft.category.trim(),
+        skills,
+        difficulty: draft.difficulty,
+        priority: draft.priority,
+        dependsOn,
+      }
+      onChangeItems([...template.items, newItem])
     }
-    onChangeItems([...template.items, newItem])
-    setDraft({ ...draft, name: '', category: '', skills: '', dependsOn: [] })
+    setDraft({ ...EMPTY_TASK_SET_DRAFT })
   }
 
   const removeItem = (id: string) => {
+    if (editingId === id) cancelEdit()
     onChangeItems(
       template.items
         .filter((i) => i.id !== id)
@@ -785,7 +842,12 @@ function TaskSetTemplateCard({
         {template.items.map((item, i) => (
           <li
             key={item.id}
-            className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-secondary/40 px-3 py-1.5 text-sm"
+            className={cn(
+              'flex items-center justify-between gap-2 rounded-md border px-3 py-1.5 text-sm',
+              editingId === item.id
+                ? 'border-primary/40 bg-primary-muted/40'
+                : 'border-border/60 bg-secondary/40',
+            )}
           >
             <div className="min-w-0 flex-1">
               <span className="font-mono text-xs text-muted-foreground">{i + 1}.</span>{' '}
@@ -799,13 +861,22 @@ function TaskSetTemplateCard({
                 </div>
               )}
             </div>
-            <button
-              onClick={() => removeItem(item.id)}
-              className="shrink-0 text-muted-foreground hover:text-destructive"
-              aria-label="削除"
-            >
-              <Trash2 className="size-3.5" />
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                onClick={() => startEdit(item)}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="編集"
+              >
+                <Pencil className="size-3.5" />
+              </button>
+              <button
+                onClick={() => removeItem(item.id)}
+                className="text-muted-foreground hover:text-destructive"
+                aria-label="削除"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </div>
           </li>
         ))}
         {template.items.length === 0 && (
@@ -867,75 +938,117 @@ function TaskSetTemplateCard({
         />
       </div>
 
-      {template.items.length > 0 && (
+      {template.items.filter((item) => item.id !== editingId).length > 0 && (
         <div className="mt-2">
           <p className="mb-1 text-[11px] font-medium text-muted-foreground">前提タスク（任意）</p>
           <div className="flex flex-wrap gap-1.5">
-            {template.items.map((item) => {
-              const checked = draft.dependsOn.includes(item.id)
-              return (
-                <button
-                  key={item.id}
-                  onClick={() =>
-                    setDraft({
-                      ...draft,
-                      dependsOn: checked
-                        ? draft.dependsOn.filter((id) => id !== item.id)
-                        : [...draft.dependsOn, item.id],
-                    })
-                  }
-                  className={cn(
-                    'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors',
-                    checked
-                      ? 'border-primary/30 bg-primary-muted text-accent-foreground'
-                      : 'border-border text-muted-foreground hover:bg-secondary',
-                  )}
-                >
-                  {checked && <Check className="size-3" strokeWidth={3} />}
-                  {item.name}
-                </button>
-              )
-            })}
+            {template.items
+              .filter((item) => item.id !== editingId)
+              .map((item) => {
+                const checked = draft.dependsOn.includes(item.id)
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        dependsOn: checked
+                          ? draft.dependsOn.filter((id) => id !== item.id)
+                          : [...draft.dependsOn, item.id],
+                      })
+                    }
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors',
+                      checked
+                        ? 'border-primary/30 bg-primary-muted text-accent-foreground'
+                        : 'border-border text-muted-foreground hover:bg-secondary',
+                    )}
+                  >
+                    {checked && <Check className="size-3" strokeWidth={3} />}
+                    {item.name}
+                  </button>
+                )
+              })}
           </div>
         </div>
       )}
 
-      <Button
-        variant="outline"
-        className="mt-2 h-8 w-full text-xs"
-        disabled={!draft.name.trim()}
-        onClick={addItem}
-      >
-        <Plus className="size-3.5" />
-        タスクを追加
-      </Button>
+      <div className="mt-2 flex items-center gap-1.5">
+        <Button
+          variant="outline"
+          className="h-8 flex-1 text-xs"
+          disabled={!draft.name.trim()}
+          onClick={submitItem}
+        >
+          {editingId ? (
+            <>
+              <Check className="size-3.5" />
+              変更を保存
+            </>
+          ) : (
+            <>
+              <Plus className="size-3.5" />
+              タスクを追加
+            </>
+          )}
+        </Button>
+        {editingId && (
+          <Button variant="ghost" className="h-8 shrink-0 text-xs" onClick={cancelEdit}>
+            キャンセル
+          </Button>
+        )}
+      </div>
     </div>
   )
 }
 
+const EMPTY_RECURRING_DRAFT = {
+  name: '',
+  department: DEPARTMENTS[0] as Department,
+  category: '',
+  difficulty: DIFFICULTY_LABEL[0] as Difficulty,
+  priority: '中' as Priority,
+  frequency: 'weekly' as 'weekly' | 'monthly',
+  dayOfWeek: 1,
+  dayOfMonth: 1,
+  dueInDays: 3,
+}
+
 function RecurringRuleForm({
   projects,
+  editingRule,
   onAdd,
+  onUpdate,
+  onCancelEdit,
 }: {
   projects: Project[]
+  editingRule: RecurringTaskRule | null
   onAdd: (rule: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => void
+  onUpdate: (fields: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => void
+  onCancelEdit: () => void
 }) {
-  const [draft, setDraft] = useState({
-    name: '',
-    projectId: projects[0]?.id ?? '',
-    department: DEPARTMENTS[0] as Department,
-    category: '',
-    difficulty: DIFFICULTY_LABEL[0] as Difficulty,
-    priority: '中' as Priority,
-    frequency: 'weekly' as 'weekly' | 'monthly',
-    dayOfWeek: 1,
-    dayOfMonth: 1,
-    dueInDays: 3,
-  })
+  const [draft, setDraft] = useState({ ...EMPTY_RECURRING_DRAFT, projectId: projects[0]?.id ?? '' })
+
+  useEffect(() => {
+    if (editingRule) {
+      setDraft({
+        name: editingRule.name,
+        projectId: editingRule.projectId,
+        department: editingRule.department,
+        category: editingRule.category,
+        difficulty: editingRule.difficulty,
+        priority: editingRule.priority,
+        frequency: editingRule.frequency,
+        dayOfWeek: editingRule.dayOfWeek ?? 1,
+        dayOfMonth: editingRule.dayOfMonth ?? 1,
+        dueInDays: editingRule.dueInDays ?? 3,
+      })
+    }
+  }, [editingRule])
 
   const submit = () => {
     if (!draft.name.trim() || !draft.projectId) return
-    onAdd({
+    const rule = {
       name: draft.name.trim(),
       projectId: draft.projectId,
       department: draft.department,
@@ -947,8 +1060,13 @@ function RecurringRuleForm({
       dayOfWeek: draft.frequency === 'weekly' ? draft.dayOfWeek : undefined,
       dayOfMonth: draft.frequency === 'monthly' ? draft.dayOfMonth : undefined,
       dueInDays: draft.dueInDays,
-    })
-    setDraft({ ...draft, name: '', category: '' })
+    }
+    if (editingRule) {
+      onUpdate(rule)
+    } else {
+      onAdd(rule)
+      setDraft({ ...EMPTY_RECURRING_DRAFT, projectId: projects[0]?.id ?? '' })
+    }
   }
 
   return (
@@ -1032,27 +1150,47 @@ function RecurringRuleForm({
           <span className="text-xs text-muted-foreground">日後が期限</span>
         </div>
       </div>
-      <Button
-        variant="outline"
-        className="mt-2 h-8 text-xs"
-        disabled={!draft.name.trim() || !draft.projectId}
-        onClick={submit}
-      >
-        <Plus className="size-3.5" />
-        定期タスクを追加
-      </Button>
+      <div className="mt-2 flex items-center gap-1.5">
+        <Button
+          variant="outline"
+          className="h-8 text-xs"
+          disabled={!draft.name.trim() || !draft.projectId}
+          onClick={submit}
+        >
+          {editingRule ? (
+            <>
+              <Check className="size-3.5" />
+              変更を保存
+            </>
+          ) : (
+            <>
+              <Plus className="size-3.5" />
+              定期タスクを追加
+            </>
+          )}
+        </Button>
+        {editingRule && (
+          <Button variant="ghost" className="h-8 text-xs" onClick={onCancelEdit}>
+            キャンセル
+          </Button>
+        )}
+      </div>
     </div>
   )
 }
 
 function RecurringRuleRow({
   rule,
+  editing,
   projectName,
+  onEdit,
   onToggle,
   onRemove,
 }: {
   rule: RecurringTaskRule
+  editing: boolean
   projectName: string
+  onEdit: () => void
   onToggle: () => void
   onRemove: () => void
 }) {
@@ -1061,7 +1199,12 @@ function RecurringRuleRow({
       ? `毎週${['日', '月', '火', '水', '木', '金', '土'][rule.dayOfWeek ?? 0]}曜日`
       : `毎月${rule.dayOfMonth ?? 1}日`
   return (
-    <li className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-secondary/40 px-3 py-2 text-sm">
+    <li
+      className={cn(
+        'flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm',
+        editing ? 'border-primary/40 bg-primary-muted/40' : 'border-border/60 bg-secondary/40',
+      )}
+    >
       <div className="flex min-w-0 items-center gap-2">
         <Repeat className="size-3.5 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
@@ -1082,6 +1225,13 @@ function RecurringRuleRow({
           )}
         >
           {rule.active ? 'ON' : 'OFF'}
+        </button>
+        <button
+          onClick={onEdit}
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="編集"
+        >
+          <Pencil className="size-3.5" />
         </button>
         <button
           onClick={onRemove}
