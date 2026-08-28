@@ -456,6 +456,46 @@ function notifyReview(taskId) {
 // `preferredEmails` is given (item 9's "admin of admins" hierarchy — e.g. a
 // task's assignee's reports_to_id) those are used instead, still falling
 // back to the default set if none resolve to anything.
+// デバッグ専用 — Apps Scriptエディタ上部の関数選択ドロップダウンで
+// "debugNotifyTest" を選び、実行ボタンを押すと、Executions画面やCloudログを
+// 開かなくても、エディタ下部の実行ログにその場で結果が表示される。
+// Membersシートの列名/メールアドレス設定・MailAppの残り送信数を確認した上で、
+// notifyAdmins() を実際に一度呼び出してテストメールを送る。
+function debugNotifyTest() {
+  console.log('MailApp remaining daily quota: ' + MailApp.getRemainingDailyQuota())
+
+  var sheet = getSheet(SHEET_MEMBERS)
+  var headers = headerRow(sheet)
+  console.log('Members sheet headers: ' + headers.join(', '))
+
+  var emailCol = headers.indexOf('email')
+  var notifyCol = headers.indexOf('notify_new_task')
+  var roleCol = headers.indexOf('role')
+  console.log(
+    'email col idx=' + emailCol + ', notify_new_task col idx=' + notifyCol + ', role col idx=' + roleCol,
+  )
+
+  if (emailCol === -1) {
+    console.warn('"email" 列が見つかりません。Membersシートのヘッダー名を確認してください。')
+  } else {
+    var rows = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 0), headers.length).getValues()
+    rows.forEach(function (r, i) {
+      console.log(
+        'row ' +
+          (i + 2) +
+          ': email=' +
+          JSON.stringify(r[emailCol]) +
+          (notifyCol !== -1 ? ', notify_new_task=' + JSON.stringify(r[notifyCol]) : '') +
+          (roleCol !== -1 ? ', role=' + JSON.stringify(r[roleCol]) : ''),
+      )
+    })
+  }
+
+  console.log('--- calling notifyAdmins() now (this will actually try to send a real email) ---')
+  notifyAdmins('[Orbit] テスト通知', 'これは debugNotifyTest() からのテストメールです。届いていれば設定は正常です。')
+  console.log('debugNotifyTest: done — check the inbox (and spam folder) of the resolved recipient(s) above')
+}
+
 function notifyAdmins(subject, body, preferredEmails) {
   try {
     if (preferredEmails && preferredEmails.length > 0) {
