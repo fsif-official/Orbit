@@ -5,12 +5,12 @@ import { Avatar } from '@/components/orbit/primitives'
 import { useNav } from '@/lib/orbit/nav'
 
 export function ProjectView() {
-  const { projects, visibleTasks: tasks, getProjectMembers } = useOrbit()
+  const { activeProjects, visibleTasks: tasks, getProjectMembers } = useOrbit()
   const { go } = useNav()
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {projects.map((p) => {
+      {activeProjects.map((p) => {
         const pt = tasks.filter((t) => t.projectId === p.id)
         const done = pt.filter((t) => t.status === 'done').length
         const waiting = pt.filter((t) => t.status === 'review').length

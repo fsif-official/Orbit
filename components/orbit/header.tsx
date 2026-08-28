@@ -277,6 +277,10 @@ export function Header() {
                       onClick={() => {
                         setNotifOpen(false)
                         if (n.kind === 'mention' && n.commentId) markMentionSeen(n.commentId)
+                        if (n.kind === 'approval') {
+                          go({ name: 'admin', section: 'approvals' })
+                          return
+                        }
                         if (n.taskId) openTask(n.taskId)
                       }}
                       className="flex w-full items-start gap-2.5 border-b border-border px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-secondary"

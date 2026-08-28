@@ -98,6 +98,10 @@ function doPost(e) {
       case 'approveTask':
         result = updateTaskFields(body.taskId, { approval_status: '承認済み' })
         break
+      case 'notifyTaskRejected':
+        notifyTaskRejected(body.creatorId, body.taskName, body.reason)
+        result = { ok: true }
+        break
       case 'removeTask':
         result = removeTask(body.taskId)
         break
@@ -216,6 +220,11 @@ function doPost(e) {
         result = updateProjectFields(body.projectId, {
           description: body.description || '',
           type: body.type || '',
+        })
+        break
+      case 'updateProjectArchived':
+        result = updateProjectFields(body.projectId, {
+          archived: body.archived ? 'TRUE' : 'FALSE',
         })
         break
       case 'updateAvatar':
@@ -683,6 +692,31 @@ function notifyTrainingRequest(memberId, trainingName) {
     sendDiscordMessage('📚 ' + name + 'さんから研修「' + (trainingName || '') + '」の申請がありました。')
   } catch (err) {
     console.error('notifyTrainingRequest failed: ' + err)
+  }
+}
+
+// 承認しない（却下） — 却下されたタスクは removeTask で削除されるため、
+// タスク名は削除前にクライアント側から渡してもらう（削除後だと
+// findRowで引けなくなるため）。best-effort。
+function notifyTaskRejected(creatorId, taskName, reason) {
+  try {
+    if (!creatorId) return
+    var emails = memberEmailsByIds([creatorId])
+    if (emails.length === 0) {
+      console.warn('notifyTaskRejected: no email on file for creatorId ' + creatorId + ' — nothing sent')
+      return
+    }
+    MailApp.sendEmail({
+      to: emails.join(','),
+      subject: '[Orbit] タスクが承認されませんでした',
+      body:
+        '登録した「' + (taskName || '') + '」は承認されませんでした。\n\n' +
+        (reason ? '理由: ' + reason + '\n\n' : '') +
+        'Orbitで確認してください。',
+    })
+    console.log('notifyTaskRejected: sent to ' + emails.join(','))
+  } catch (err) {
+    console.error('notifyTaskRejected failed: ' + err)
   }
 }
 

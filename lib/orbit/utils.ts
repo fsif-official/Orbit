@@ -58,6 +58,15 @@ export function formatTenure(joinedAt: string): string {
   return years > 0 ? `${years}年${months}ヶ月` : `${months}ヶ月`
 }
 
+// 所属歴を年数（小数）で返す — 人材検索フィルタ（Admin > Members）で
+// 「経験年数」（自己申告の概数）の代わりに所属日ベースで絞り込むために使う
+export function tenureYears(joinedAt: string): number {
+  const start = new Date(joinedAt).getTime()
+  const now = Date.now()
+  if (Number.isNaN(start)) return 0
+  return Math.max(0, (now - start) / (365.25 * 24 * 60 * 60 * 1000))
+}
+
 export function formatDateTime(iso?: string): string {
   if (!iso) return ''
   const d = new Date(iso)

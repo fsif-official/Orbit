@@ -1,12 +1,15 @@
 'use client'
 
+import { useState } from 'react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useToast } from '@/components/orbit/toast'
 import { Avatar, DifficultyBadge, ProjectTag, Tag } from '@/components/orbit/primitives'
+import { Modal } from '@/components/orbit/modal'
 import { Button } from '@/components/ui/button'
 import { findSimilarTasks, formatDeadline } from '@/lib/orbit/utils'
 import { canApproveTask, isEscalatedTask } from '@/lib/orbit/permissions'
-import { Check, FileClock, ShieldCheck, TriangleAlert } from 'lucide-react'
+import type { Task } from '@/lib/orbit/types'
+import { Check, FileClock, ShieldCheck, TriangleAlert, X } from 'lucide-react'
 
 export function AdminApprovals() {
   const {
@@ -15,10 +18,13 @@ export function AdminApprovals() {
     getProject,
     getMember,
     approveTask,
+    rejectTask,
     currentUser,
     isFullAdmin,
   } = useOrbit()
   const toast = useToast()
+  const [rejecting, setRejecting] = useState<Task | null>(null)
+  const [reason, setReason] = useState('')
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
@@ -112,17 +118,29 @@ export function AdminApprovals() {
                     )}
                   </div>
                   {canApprove ? (
-                    <Button
-                      size="sm"
-                      className="shrink-0"
-                      onClick={() => {
-                        approveTask(t.id)
-                        toast(`「${t.name}」を承認しました`)
-                      }}
-                    >
-                      <Check className="size-4" />
-                      承認する
-                    </Button>
+                    <div className="flex shrink-0 flex-col gap-1.5">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          approveTask(t.id)
+                          toast(`「${t.name}」を承認しました`)
+                        }}
+                      >
+                        <Check className="size-4" />
+                        承認する
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setReason('')
+                          setRejecting(t)
+                        }}
+                      >
+                        <X className="size-4" />
+                        承認しない
+                      </Button>
+                    </div>
                   ) : (
                     <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
                       {approver?.displayName || approver?.name}のみ承認できます
@@ -134,6 +152,38 @@ export function AdminApprovals() {
           })}
         </div>
       )}
+
+      <Modal open={!!rejecting} onClose={() => setRejecting(null)}>
+        <h2 className="text-base font-semibold">このタスクを承認しませんか？</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          「{rejecting?.name}」は削除され、登録者に理由とともにメールで通知されます。
+        </p>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={3}
+          placeholder="却下の理由（任意）"
+          className="mt-3 w-full resize-none rounded-lg border border-border bg-card px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
+        />
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" className="h-9" onClick={() => setRejecting(null)}>
+            キャンセル
+          </Button>
+          <Button
+            variant="destructive"
+            className="h-9"
+            onClick={() => {
+              if (rejecting) {
+                rejectTask(rejecting.id, reason.trim() || undefined)
+                toast(`「${rejecting.name}」を承認しませんでした`)
+              }
+              setRejecting(null)
+            }}
+          >
+            承認しない
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }
