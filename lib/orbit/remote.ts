@@ -26,6 +26,7 @@ import type {
   Task,
   TaskComment,
   TaskDeliverable,
+  TaskForm,
   TaskHistoryEntry,
   TaskImportance,
   TaskRetrospective,
@@ -281,6 +282,7 @@ function mapTaskRow(r: Record<string, string>): Task {
     retrospective: parseJsonObject<TaskRetrospective>(r.retrospective_json),
     importance: (r.importance || undefined) as Task['importance'],
     schedule: parseJsonObject<TaskSchedule>(r.schedule_json),
+    form: parseJsonObject<TaskForm>(r.form_json),
   }
 }
 
@@ -581,6 +583,9 @@ export const remoteApi = {
   updateTaskSchedule: (taskId: string, schedule: TaskSchedule | null) =>
     postToGas('updateTaskSchedule', { taskId, schedule }),
   notifyScheduleResult: (taskId: string) => postToGas('notifyScheduleResult', { taskId }),
+  updateTaskForm: (taskId: string, form: TaskForm | null) =>
+    postToGas('updateTaskForm', { taskId, form }),
+  notifyFormResult: (taskId: string) => postToGas('notifyFormResult', { taskId }),
   // ---- タレントマネジメント ----
   updateSearchProfile: (
     memberId: string,
