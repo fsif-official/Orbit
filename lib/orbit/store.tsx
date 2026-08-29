@@ -25,6 +25,7 @@ import type {
   ScheduleCandidate,
   ScheduleResponseValue,
   SkillLevel,
+  SkillLevelValue,
   Task,
   TaskComment,
   TaskDeliverable,
@@ -1519,6 +1520,33 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [members, runRemote],
   )
 
+  // タスクを完了すると、そのタスクの要求スキルが担当者のスキルレベルに
+  // Lv.1（＝「やり始めたばかり」— 何もできないという意味ではない）として
+  // 自動登録される。すでに登録済みのスキルは上書きしない（本人が後から
+  // レベルを上げていける）。要求分野の認定は、この登録済みスキルの保有率
+  // （memberSkillFieldProgress）で判定される
+  const registerSkillsFromTask = useCallback(
+    (allTasks: Task[], changedTaskId: string) => {
+      const changed = allTasks.find((t) => t.id === changedTaskId)
+      if (!changed || changed.assigneeIds.length === 0 || changed.skills.length === 0) return
+
+      changed.assigneeIds.forEach((assigneeId) => {
+        const member = members.find((m) => m.id === assigneeId)
+        if (!member) return
+        const existing = member.skillLevels ?? []
+        const newSkills = changed.skills.filter((s) => !existing.some((sl) => sl.skill === s))
+        if (newSkills.length === 0) return
+        const nextLevels: SkillLevel[] = [
+          ...existing,
+          ...newSkills.map((skill) => ({ skill, level: 1 as SkillLevelValue })),
+        ]
+        setMembers((prev) => prev.map((m) => (m.id === member.id ? { ...m, skillLevels: nextLevels } : m)))
+        if (isRemoteConfigured) runRemote(remoteApi.updateSkillLevels(member.id, nextLevels))
+      })
+    },
+    [members, runRemote],
+  )
+
   const updateTaskStatus = useCallback(
     (id: string, status: TaskStatus) => {
       // 前提タスクが完了していない限り、このタスクは完了にできない — UI側
@@ -1545,13 +1573,16 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           : t,
       )
       setTasks(updated)
-      if (status === 'done') maybeCertifySkill(updated, id)
+      if (status === 'done') {
+        maybeCertifySkill(updated, id)
+        registerSkillsFromTask(updated, id)
+      }
       // entering 確認待ち is the assignee's "I'm done, please confirm" signal
       // — the admin gets emailed (gas/Code.gs) and already sees it surface
       // in the Admin dashboard's 確認待ち panel automatically.
       if (isRemoteConfigured) runRemote(remoteApi.updateTaskStatus(id, status))
     },
-    [tasks, maybeCertifySkill, appendHistory, runRemote],
+    [tasks, maybeCertifySkill, registerSkillsFromTask, appendHistory, runRemote],
   )
 
   const assignTask = useCallback(

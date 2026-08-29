@@ -219,9 +219,12 @@ export function PersonDetail({ id }: { id: string }) {
   const positionMissing = positionRequirements.filter((s) => !member.skills.includes(s))
 
   // 要求分野 — never assigned directly; derived from how much of each
-  // field's constituent 要求スキル this member already holds
+  // field's constituent 要求スキル this member already holds. Uses the
+  // graded スキルレベル registry (Lv.1〜5、経歴・キャリアタブ) rather than
+  // Will/Judgmentから作られるmember.skills — スキルレベルはタスク完了時に
+  // Lv.1で自動登録されるほか、団体外の経験なども本人が自己申告で追加できる
   const skillFieldProgress = memberSkillFieldProgress(
-    member.skills,
+    (member.skillLevels ?? []).map((sl) => sl.skill),
     skillFieldSkills,
     skillFieldThreshold,
   )
