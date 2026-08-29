@@ -35,7 +35,7 @@ Apps Script Web App 経由で行います（アルファ版設計ドキュメン
 | qualifications_json | 保有資格の配列（JSON文字列）。同タブで本人が編集できます |
 | evaluation_history_json | 評価履歴の配列（JSON文字列、評価者ID・評価・コメントを含む）。管理者のみが同タブから編集できます |
 | transfer_history_json | 異動履歴の配列（JSON文字列）。管理者のみが同タブから編集できます |
-| skill_levels_json | スキルごとの習熟度（1〜5、JSON文字列）。本人が同タブから編集できます |
+| skill_levels_json | スキルごとの習熟度（1〜5、JSON文字列）。本人が同タブから編集できるほか、タスクを完了するとその要求スキルがLv.1（「やり始めたばかり」の意味）で自動登録されます。要求分野（skill_field_skills/skill_field_threshold、§4.6）の認定は、ここに登録されたスキルの保有率で判定されます |
 | competencies_json | 役職に関連するコンピテンシー評価（1〜5、JSON文字列）。管理者のみが同タブから編集できます |
 | career_aspiration | 将来やりたいこと・キャリア志向（自由記述、任意）。本人が同タブから編集できます |
 | desired_future_role | 目指したい役職・ポジション（自由記述、任意）。同上 |

@@ -1,13 +1,15 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { Search, FileSpreadsheet } from 'lucide-react'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
 import { STATUS_LABEL, STATUS_ORDER, DEPARTMENTS } from '@/lib/orbit/types'
 import type { Task } from '@/lib/orbit/types'
 import { formatDeadline, isOverdue } from '@/lib/orbit/utils'
+import { exportTasksToExcel } from '@/lib/orbit/export-excel'
 import { Avatar, StatusBadge, DifficultyBadge, ProjectTag, DepartmentTag } from '@/components/orbit/primitives'
+import { Button } from '@/components/ui/button'
 
 export function ListView({
   tasks,
@@ -102,6 +104,17 @@ export function ListView({
             </option>
           ))}
         </select>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="ml-auto gap-1.5"
+          disabled={filtered.length === 0}
+          onClick={() => exportTasksToExcel(filtered, projects, members)}
+        >
+          <FileSpreadsheet className="size-4" />
+          Excel出力
+        </Button>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">

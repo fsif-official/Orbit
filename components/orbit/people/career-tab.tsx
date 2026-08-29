@@ -322,18 +322,23 @@ function SkillLevelsSection({
 }) {
   const levels = member.skillLevels ?? []
   const [skill, setSkill] = useState('')
-  const [level, setLevel] = useState<SkillLevelValue>(3)
+  // Lv.1を初期値に — 「やり始めたばかり」であって「何もできない」わけでは
+  // ないので、まずは登録してみるハードルを下げる
+  const [level, setLevel] = useState<SkillLevelValue>(1)
   const available = skillOptions.filter((s) => !levels.some((l) => l.skill === s))
 
   const add = () => {
     if (!skill) return
     onSave(member.id, [...levels, { skill, level }])
     setSkill('')
-    setLevel(3)
+    setLevel(1)
   }
 
   return (
-    <Section title="スキルレベル" description="各スキルの習熟度（1〜5）です。">
+    <Section
+      title="スキルレベル"
+      description="各スキルの習熟度（1〜5）です。Lv.1は「何もできない」ではなく「やり始めたばかり」の意味です。タスクを完了するとLv.1で自動登録され、団体外の経験なども自分で追加できます。要求分野の認定は、ここに登録されたスキルの保有率で判定されます。"
+    >
       <EntryList emptyText="まだ記録されていません">
         {levels.map((l) => (
           <EntryRow

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
@@ -8,13 +8,46 @@ import { useToast } from '../toast'
 import { Modal } from '../modal'
 import { buildDemoParse, DEMO_INPUT } from '@/lib/orbit/seed'
 import { DEPARTMENTS, DIFFICULTY_LABEL, PRIORITIES } from '@/lib/orbit/types'
-import type { ParsedTask, Department, Difficulty, Priority, Project, TaskInput } from '@/lib/orbit/types'
+import type {
+  ParsedTask,
+  Department,
+  Difficulty,
+  Member,
+  Priority,
+  Project,
+  ScheduleCandidate,
+  TaskInput,
+  TaskSetTemplate,
+} from '@/lib/orbit/types'
 import { ParsedTaskCard } from './parsed-task-card'
-import { OrbitMark, SectionLabel, StatusBadge } from '../primitives'
+import { ExcelColumnMapping } from './excel-column-mapping'
+import { Avatar, OrbitMark, SectionLabel, StatusBadge } from '../primitives'
 import { formatDateTime, findSimilarTasks } from '@/lib/orbit/utils'
-import { ArrowRight, History, Sparkles, Trash2, TriangleAlert, Wand2, X } from 'lucide-react'
+import { buildParsedTasks, detectColumns, readExcelFile } from '@/lib/orbit/import-excel'
+import type {
+  ColumnMapping,
+  ImportField,
+  SheetData,
+  ValueMappedField,
+  ValueMaps,
+} from '@/lib/orbit/import-excel'
+import { cn } from '@/lib/utils'
+import {
+  ArrowRight,
+  CalendarClock,
+  Check,
+  FileSpreadsheet,
+  History,
+  LayoutTemplate,
+  Plus,
+  Sparkles,
+  Trash2,
+  TriangleAlert,
+  Wand2,
+  X,
+} from 'lucide-react'
 
-type Phase = 'input' | 'parsing' | 'result'
+type Phase = 'input' | 'parsing' | 'mapping' | 'result'
 
 // Keeps the in-progress draft text across screen switches (INPUT unmounts
 // whenever the user navigates away), scoped per-user so it doesn't leak
@@ -32,8 +65,20 @@ function loadDraft(userId: string | null | undefined): string {
 }
 
 export function InputScreen() {
-  const { addTasksFromInput, setMode, currentUser, inputs, tasks, projects, categoryOptions } =
-    useOrbit()
+  const {
+    addTasksFromInput,
+    setMode,
+    currentUser,
+    inputs,
+    tasks,
+    projects,
+    categoryOptions,
+    members,
+    taskSetTemplates,
+    applyTaskSetTemplate,
+    createScheduleTask,
+    isFullAdmin,
+  } = useOrbit()
   const { go } = useNav()
   const toast = useToast()
 
@@ -45,6 +90,12 @@ export function InputScreen() {
   const [registered, setRegistered] = useState(false)
   const [historyInput, setHistoryInput] = useState<TaskInput | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [importError, setImportError] = useState<string | null>(null)
+  const [importSource, setImportSource] = useState<string | null>(null)
+  const [sheetData, setSheetData] = useState<SheetData | null>(null)
+  const [columnMapping, setColumnMapping] = useState<ColumnMapping>({})
+  const [valueMaps, setValueMaps] = useState<ValueMaps>({})
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const myInputs = inputs.filter((i) => i.createdById === currentUser?.id)
 
@@ -90,6 +141,62 @@ export function InputScreen() {
     }, 1600)
   }
 
+  // Excelファイルは列の並び・型が保証されないので、まずヘッダー文字列から
+  // 「たぶんこの列だろう」を推測して確認画面（ExcelColumnMapping）を出し、
+  // ユーザーにどの列を使うか・値の対応を確認してもらう。エラーで止めるのではなく
+  // 常にこの確認画面に進み、そこで列を選び直せば必ず取り込める
+  const handleExcelFile = async (file: File) => {
+    if (projects.length === 0) return
+    setImportError(null)
+    try {
+      const data = await readExcelFile(file)
+      setSheetData(data)
+      setColumnMapping(detectColumns(data.headers))
+      setValueMaps({})
+      setPhase('mapping')
+    } catch {
+      setImportError('ファイルを読み込めませんでした。Excel(.xlsx)形式か確認してください')
+    }
+  }
+
+  const handleMappingChange = (field: ImportField, header: string | undefined) => {
+    setColumnMapping((prev) => {
+      const next = { ...prev }
+      if (header) next[field] = header
+      else delete next[field]
+      return next
+    })
+  }
+
+  const handleValueMapChange = (field: ValueMappedField, raw: string, mapped: string) => {
+    setValueMaps((prev) => ({ ...prev, [field]: { ...prev[field], [raw]: mapped } }))
+  }
+
+  const handleMappingConfirm = () => {
+    if (!sheetData || !columnMapping.name) return
+    const { parsed: result, skippedRows } = buildParsedTasks(
+      sheetData.rows,
+      columnMapping,
+      valueMaps,
+      projects,
+      members,
+    )
+    if (result.length === 0) {
+      setImportError('タスクとして読み込める行が見つかりませんでした')
+      setPhase('input')
+      return
+    }
+    setImportSource(`Excelインポート: ${sheetData.fileName}`)
+    setParsed(result)
+    setSelectedIds(new Set())
+    setPhase('result')
+    toast(
+      skippedRows > 0
+        ? `${result.length}件を読み込みました（タスク名が空の${skippedRows}行はスキップ）`
+        : `${result.length}件を読み込みました`,
+    )
+  }
+
   // 解析結果のうち、既存タスクと似ているものだけを抜き出したもの。各カードにも
   // 同じ警告が出るが、件数が多いとスクロールして見落とすため、ここでもまとめて示す
   const duplicateFlags = useMemo(
@@ -120,18 +227,22 @@ export function InputScreen() {
   const handleRegister = () => {
     const approved = parsed.filter((p) => p.approved)
     if (approved.length === 0) return
-    addTasksFromInput(text, approved)
+    addTasksFromInput(importSource ?? text, approved)
     toast(`${approved.length}件のタスクを登録しました`)
     setPhase('input')
     setText('')
     setParsed([])
     setSelectedIds(new Set())
+    setImportSource(null)
+    setSheetData(null)
+    setColumnMapping({})
+    setValueMaps({})
     setRegistered(true)
   }
 
   return (
     <main className="mx-auto max-w-3xl px-4 pb-24 pt-10 sm:px-6 sm:pt-16">
-      {phase !== 'result' && (
+      {phase !== 'result' && phase !== 'mapping' && (
         <>
           {/* Hero */}
           <div className="mb-8 text-center">
@@ -219,6 +330,38 @@ export function InputScreen() {
               分類できませんでした。内容を確認して手動で編集してください。
             </p>
           )}
+          {importError && (
+            <p className="mt-2.5 flex items-center gap-1.5 text-sm text-destructive">
+              <TriangleAlert className="size-4" />
+              {importError}
+            </p>
+          )}
+
+          {/* Excelインポート — 列の並び・型は保証されないので、ヘッダー文字列を
+              手がかりにタスク名・プロジェクトなどを判別する（lib/orbit/import-excel.ts） */}
+          {phase === 'input' && projects.length > 0 && (
+            <div className="mt-3 flex justify-center">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ''
+                  if (file) void handleExcelFile(file)
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline"
+              >
+                <FileSpreadsheet className="size-3.5" />
+                Excelファイルから読み込む
+              </button>
+            </div>
+          )}
 
           {/* demo helper */}
           {phase === 'input' && !text && (
@@ -274,6 +417,25 @@ export function InputScreen() {
             </div>
           )}
 
+          {phase === 'input' && projects.length > 0 && (
+            <div className="mt-10">
+              <div className="mb-2 flex items-center gap-1.5">
+                <LayoutTemplate className="size-3.5 text-muted-foreground" />
+                <SectionLabel>クイック追加</SectionLabel>
+              </div>
+              <div className="flex flex-col gap-2">
+                {isFullAdmin && taskSetTemplates.length > 0 && (
+                  <TemplateQuickAdd
+                    projects={projects}
+                    templates={taskSetTemplates}
+                    onApply={applyTaskSetTemplate}
+                  />
+                )}
+                <ScheduleQuickAdd projects={projects} members={members} onCreate={createScheduleTask} />
+              </div>
+            </div>
+          )}
+
           {phase === 'input' && myInputs.length > 0 && (
             <div className="mt-10">
               <div className="mb-2 flex items-center gap-1.5">
@@ -300,12 +462,35 @@ export function InputScreen() {
         </>
       )}
 
+      {phase === 'mapping' && sheetData && (
+        <ExcelColumnMapping
+          sheetData={sheetData}
+          mapping={columnMapping}
+          onMappingChange={handleMappingChange}
+          valueMaps={valueMaps}
+          onValueMapChange={handleValueMapChange}
+          projects={projects}
+          members={members}
+          onCancel={() => {
+            setPhase('input')
+            setSheetData(null)
+            setColumnMapping({})
+            setValueMaps({})
+          }}
+          onConfirm={handleMappingConfirm}
+        />
+      )}
+
       {phase === 'result' && (
         <div className="animate-in fade-in slide-in-from-bottom-2">
           <div className="mb-5">
             <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-              <Sparkles className="size-3.5 text-primary" />
-              解析結果
+              {importSource ? (
+                <FileSpreadsheet className="size-3.5 text-primary" />
+              ) : (
+                <Sparkles className="size-3.5 text-primary" />
+              )}
+              {importSource ? 'Excelインポート結果' : '解析結果'}
             </div>
             <h2 className="text-xl font-semibold tracking-tight">
               {parsed.length}件のタスクを見つけました
@@ -475,6 +660,10 @@ export function InputScreen() {
                   setPhase('input')
                   setParsed([])
                   setSelectedIds(new Set())
+                  setImportSource(null)
+                  setSheetData(null)
+                  setColumnMapping({})
+                  setValueMaps({})
                 }}
               >
                 やり直す
@@ -535,6 +724,280 @@ export function InputScreen() {
         )}
       </Modal>
     </main>
+  )
+}
+
+// クイック追加: 業務テンプレートからプロジェクトへタスクを一括追加する
+// （Admin > Projectsの「テンプレート適用」と同じ操作を、INPUT画面からも
+// できるようにしたもの。承認フローを経由しない admin-initiated 操作なので
+// 管理者のみに表示する）
+function TemplateQuickAdd({
+  projects,
+  templates,
+  onApply,
+}: {
+  projects: Project[]
+  templates: TaskSetTemplate[]
+  onApply: (templateId: string, projectId: string) => void
+}) {
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [projectId, setProjectId] = useState('')
+  const [templateId, setTemplateId] = useState('')
+
+  const submit = () => {
+    if (!projectId || !templateId) return
+    const template = templates.find((t) => t.id === templateId)
+    const project = projects.find((p) => p.id === projectId)
+    onApply(templateId, projectId)
+    toast(`「${template?.name}」を「${project?.name}」に適用し、${template?.items.length ?? 0}件のタスクを追加しました`)
+    setOpen(false)
+    setProjectId('')
+    setTemplateId('')
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-2 rounded-xl border border-dashed border-border-strong bg-card px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary"
+      >
+        <LayoutTemplate className="size-4 shrink-0" />
+        業務テンプレートからタスクを追加
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          <LayoutTemplate className="size-4" />
+          業務テンプレートからタスクを追加
+        </span>
+        <button onClick={() => setOpen(false)} aria-label="閉じる">
+          <X className="size-4 text-muted-foreground" />
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={projectId}
+          onChange={(e) => setProjectId(e.target.value)}
+          className="h-9 min-w-[140px] flex-1 cursor-pointer rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary"
+        >
+          <option value="">プロジェクトを選択</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={templateId}
+          onChange={(e) => setTemplateId(e.target.value)}
+          className="h-9 min-w-[140px] flex-1 cursor-pointer rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary"
+        >
+          <option value="">テンプレートを選択</option>
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}（{t.items.length}件）
+            </option>
+          ))}
+        </select>
+        <Button className="h-9 shrink-0" disabled={!projectId || !templateId} onClick={submit}>
+          <Plus className="size-4" />
+          追加
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// クイック追加: 候補日時＋招待メンバーを指定して、日程調整専用のタスクを
+// その場で作成する（承認フローは経由しない — 招待されたメンバーがすぐに
+// 〇×△で回答できる必要があるため）。誰でも使える
+function ScheduleQuickAdd({
+  projects,
+  members,
+  onCreate,
+}: {
+  projects: Project[]
+  members: Member[]
+  onCreate: (
+    projectId: string,
+    name: string,
+    candidates: ScheduleCandidate[],
+    invitedIds: string[],
+  ) => void
+}) {
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [projectId, setProjectId] = useState('')
+  const [name, setName] = useState('')
+  const [candidates, setCandidates] = useState<ScheduleCandidate[]>([])
+  const [dateTimeInput, setDateTimeInput] = useState('')
+  const [invitedIds, setInvitedIds] = useState<string[]>([])
+
+  const addCandidate = () => {
+    if (!dateTimeInput) return
+    const d = new Date(dateTimeInput)
+    const label = `${d.getMonth() + 1}/${d.getDate()}(${'日月火水木金土'[d.getDay()]}) ${String(
+      d.getHours(),
+    ).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    setCandidates((prev) => [
+      ...prev,
+      { id: `sc-${Math.random().toString(36).slice(2, 9)}`, label },
+    ])
+    setDateTimeInput('')
+  }
+
+  const reset = () => {
+    setProjectId('')
+    setName('')
+    setCandidates([])
+    setDateTimeInput('')
+    setInvitedIds([])
+  }
+
+  const submit = () => {
+    if (!projectId || !name.trim() || candidates.length === 0 || invitedIds.length === 0) return
+    onCreate(projectId, name.trim(), candidates, invitedIds)
+    toast(`「${name.trim()}」を作成しました。招待した${invitedIds.length}人が全員回答すると自動的に完了します`)
+    setOpen(false)
+    reset()
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-2 rounded-xl border border-dashed border-border-strong bg-card px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary"
+      >
+        <CalendarClock className="size-4 shrink-0" />
+        日程調整タスクを作成
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          <CalendarClock className="size-4" />
+          日程調整タスクを作成
+        </span>
+        <button
+          onClick={() => {
+            setOpen(false)
+            reset()
+          }}
+          aria-label="閉じる"
+        >
+          <X className="size-4 text-muted-foreground" />
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        <div className="flex flex-wrap gap-2">
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            className="h-9 min-w-[140px] flex-1 cursor-pointer rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary"
+          >
+            <option value="">プロジェクトを選択</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="タスク名（例：定例MTGの日程調整）"
+            className="h-9 min-w-[180px] flex-[2] rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary"
+          />
+        </div>
+
+        <div>
+          <p className="mb-1 text-xs font-medium text-muted-foreground">候補日時</p>
+          {candidates.length > 0 && (
+            <ul className="mb-1.5 flex flex-col gap-1">
+              {candidates.map((c) => (
+                <li
+                  key={c.id}
+                  className="flex items-center justify-between gap-2 rounded-md bg-secondary/60 px-2 py-1 text-sm"
+                >
+                  {c.label}
+                  <button
+                    onClick={() => setCandidates((prev) => prev.filter((x) => x.id !== c.id))}
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label="削除"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex items-center gap-1.5">
+            <input
+              type="datetime-local"
+              value={dateTimeInput}
+              onChange={(e) => setDateTimeInput(e.target.value)}
+              className="h-9 flex-1 rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary"
+            />
+            <button
+              onClick={addCandidate}
+              disabled={!dateTimeInput}
+              className="flex h-9 shrink-0 items-center gap-1 rounded-lg border border-dashed border-border-strong px-2.5 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-40"
+            >
+              <Plus className="size-3.5" />
+              追加
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-1 text-xs font-medium text-muted-foreground">招待するメンバー</p>
+          <div className="flex max-h-32 flex-col gap-0.5 overflow-y-auto rounded-lg border border-border p-1 orbit-scroll">
+            {members.map((m) => {
+              const checked = invitedIds.includes(m.id)
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() =>
+                    setInvitedIds((prev) =>
+                      checked ? prev.filter((id) => id !== m.id) : [...prev, m.id],
+                    )
+                  }
+                  className={cn(
+                    'flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-secondary',
+                    checked && 'bg-primary-muted',
+                  )}
+                >
+                  <Avatar member={m} size={20} />
+                  {m.displayName || m.name}
+                  {checked && <Check className="ml-auto size-3.5 text-primary" />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <Button
+          className="h-9 self-end"
+          disabled={!projectId || !name.trim() || candidates.length === 0 || invitedIds.length === 0}
+          onClick={submit}
+        >
+          <Plus className="size-4" />
+          作成
+        </Button>
+      </div>
+    </div>
   )
 }
 

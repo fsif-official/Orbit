@@ -5,6 +5,8 @@ import { useTaskDrawer } from '@/lib/orbit/task-drawer'
 import { Avatar, ProjectTag } from '@/components/orbit/primitives'
 import { isOverdue, daysSince, formatDeadline } from '@/lib/orbit/utils'
 import { STATUS_LABEL } from '@/lib/orbit/types'
+import { exportAllDataToExcel } from '@/lib/orbit/export-excel'
+import { Button } from '@/components/ui/button'
 import {
   CircleAlert,
   Clock,
@@ -15,6 +17,7 @@ import {
   Ban,
   Sparkles,
   HeartPulse,
+  FileSpreadsheet,
 } from 'lucide-react'
 
 export function AdminDashboard() {
@@ -22,6 +25,7 @@ export function AdminDashboard() {
     adminTasks: tasks,
     adminPendingTasks: pendingTasks,
     adminProjects,
+    members,
     isFullAdmin,
     getProject,
   } = useOrbit()
@@ -109,12 +113,28 @@ export function AdminDashboard() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        {isFullAdmin
-          ? '組織全体のタスク状況と、対応が必要な項目です。'
-          : '担当プロジェクトのタスク状況と、対応が必要な項目です。'}
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isFullAdmin
+              ? '組織全体のタスク状況と、対応が必要な項目です。'
+              : '担当プロジェクトのタスク状況と、対応が必要な項目です。'}
+          </p>
+        </div>
+        {isFullAdmin && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => exportAllDataToExcel(tasks, adminProjects, members)}
+          >
+            <FileSpreadsheet className="size-4" />
+            全データをExcel出力
+          </Button>
+        )}
+      </div>
 
       {/* 次アクション提案 (item 20) */}
       <div className="mt-6 rounded-lg border border-primary/20 bg-primary/5 p-4">
