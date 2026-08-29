@@ -208,6 +208,15 @@ function doPost(e) {
         notifyScheduleResult(body.taskId)
         result = { ok: true }
         break
+      case 'updateTaskForm':
+        result = updateTaskFields(body.taskId, {
+          form_json: body.form ? JSON.stringify(body.form) : '',
+        })
+        break
+      case 'notifyFormResult':
+        notifyFormResult(body.taskId)
+        result = { ok: true }
+        break
       case 'updateProjectMembers':
         result = updateProjectFields(body.projectId, {
           member_ids: (body.memberIds || []).join(','),
@@ -787,6 +796,59 @@ function notifyScheduleResult(taskId) {
     sendDiscordMessage('🗓️ 「' + task.title + '」の日程調整で全員の回答が揃いました。')
   } catch (err) {
     console.error('notifyScheduleResult failed: ' + err)
+  }
+}
+
+// 汎用フォームツール — 招待された全員が回答を終えたタイミングでstore.tsxから
+// 呼ばれ、作成者へ回答結果をメールする。
+function notifyFormResult(taskId) {
+  try {
+    var task = findRow(SHEET_TASKS, taskId)
+    if (!task || !task.creator_id) return
+    var emails = memberEmailsByIds([task.creator_id])
+    if (emails.length === 0) {
+      console.warn('notifyFormResult: no email on file for creator_id ' + task.creator_id + ' — nothing sent')
+      return
+    }
+
+    var form = null
+    try {
+      form = task.form_json ? JSON.parse(task.form_json) : null
+    } catch (e) {
+      form = null
+    }
+
+    var body = 'タスク「' + task.title + '」のフォームで全員の回答が揃いました。\n\n'
+    if (form && form.fields) {
+      var sheet = getSheet(SHEET_MEMBERS)
+      var headers = headerRow(sheet)
+      var idCol = headers.indexOf('id')
+      var nameCol = headers.indexOf('display_name')
+      var altNameCol = headers.indexOf('name')
+      var rows = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 0), headers.length).getValues()
+      var nameById = {}
+      rows.forEach(function (r) {
+        var id = String(r[idCol])
+        nameById[id] = (nameCol !== -1 && r[nameCol]) || (altNameCol !== -1 && r[altNameCol]) || id
+      })
+      ;(form.invitedIds || []).forEach(function (mid) {
+        body += '【' + (nameById[mid] || mid) + '】\n'
+        var resp = (form.responses && form.responses[mid]) || {}
+        form.fields.forEach(function (f) {
+          var v = resp[f.id]
+          var text = Array.isArray(v) ? v.join('、') : v || '（未回答）'
+          body += '  ' + f.label + ': ' + text + '\n'
+        })
+        body += '\n'
+      })
+    }
+    body += '\nOrbitで確認してください。'
+
+    MailApp.sendEmail({ to: emails.join(','), subject: '[Orbit] フォームの回答が揃いました', body: body })
+    console.log('notifyFormResult: sent to ' + emails.join(','))
+    sendDiscordMessage('📝 「' + task.title + '」のフォームで全員の回答が揃いました。')
+  } catch (err) {
+    console.error('notifyFormResult failed: ' + err)
   }
 }
 

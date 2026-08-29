@@ -392,6 +392,8 @@ export interface Task {
   retrospective?: TaskRetrospective
   // 日程調整ツール — see TaskSchedule
   schedule?: TaskSchedule
+  // 汎用フォームツール — see TaskForm
+  form?: TaskForm
 }
 
 export interface TaskRetrospective {
@@ -416,6 +418,31 @@ export interface TaskSchedule {
   invitedIds: string[]
   // memberId -> candidateId -> response
   responses: Record<string, Record<string, ScheduleResponseValue>>
+}
+
+// 汎用フォームツール — 作成者が自由に質問項目を用意し、招待した特定の
+// メンバーに回答してもらう。招待者全員が回答し終えると自動的に
+// status: 'done' になり、作成者へ回答結果とともに通知が飛ぶ
+// （store.tsx の respondToForm / gas/Code.gs の notifyFormResult）
+export type FormFieldType = 'text' | 'textarea' | 'select' | 'checkbox'
+
+export interface FormFieldDef {
+  id: string
+  label: string
+  type: FormFieldType
+  // 'select'（単一選択）・'checkbox'（複数選択）で使う選択肢
+  options?: string[]
+  required?: boolean
+}
+
+// 'text'/'textarea'/'select' は単一の文字列、'checkbox' は複数選択なので文字列配列
+export type FormAnswerValue = string | string[]
+
+export interface TaskForm {
+  fields: FormFieldDef[]
+  invitedIds: string[]
+  // memberId -> fieldId -> answer
+  responses: Record<string, Record<string, FormAnswerValue>>
 }
 
 export interface TaskDeliverable {

@@ -19,6 +19,9 @@ import {
   isAdminRole,
   type Department,
   type Difficulty,
+  type FormAnswerValue,
+  type FormFieldDef,
+  type FormFieldType,
   type Member,
   type Priority,
   type Project,
@@ -134,6 +137,8 @@ export function TaskDetailDrawer({
     updateRetrospective,
     setTaskSchedule,
     respondToSchedule,
+    setTaskForm,
+    respondToForm,
     removeTask,
     skillOptions,
     categoryOptions,
@@ -217,6 +222,10 @@ export function TaskDetailDrawer({
             }
             onRespondSchedule={(responses) => {
               if (currentUser) respondToSchedule(task.id, currentUser.id, responses)
+            }}
+            onSetForm={(fields, invitedIds) => setTaskForm(task.id, fields, invitedIds)}
+            onRespondForm={(responses) => {
+              if (currentUser) respondToForm(task.id, currentUser.id, responses)
             }}
           />
         )}
@@ -1121,6 +1130,8 @@ function DrawerBody({
   onSaveRetrospective,
   onSetSchedule,
   onRespondSchedule,
+  onSetForm,
+  onRespondForm,
 }: {
   task: Task
   currentUserId: string | null
@@ -1156,6 +1167,8 @@ function DrawerBody({
   onSaveRetrospective: (retrospective: TaskRetrospective | null) => void
   onSetSchedule: (candidates: { id: string; label: string }[], invitedIds: string[]) => void
   onRespondSchedule: (responses: Record<string, ScheduleResponseValue>) => void
+  onSetForm: (fields: FormFieldDef[], invitedIds: string[]) => void
+  onRespondForm: (responses: Record<string, FormAnswerValue>) => void
 }) {
   const overdue = isOverdue(task)
   const calendarUrl = googleCalendarUrl(task, {
@@ -1624,6 +1637,15 @@ function DrawerBody({
           members={members}
           onSetSchedule={onSetSchedule}
           onRespondSchedule={onRespondSchedule}
+        />
+
+        <FormSection
+          task={task}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          members={members}
+          onSetForm={onSetForm}
+          onRespondForm={onRespondForm}
         />
 
         {/* Comments */}
@@ -2160,6 +2182,364 @@ function ScheduleSection({
             <Button
               className="h-8"
               disabled={candidateDraft.length === 0 || inviteDraft.length === 0}
+              onClick={saveConfig}
+            >
+              保存
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const FORM_FIELD_TYPE_LABEL: Record<FormFieldType, string> = {
+  text: '一行テキスト',
+  textarea: '複数行テキスト',
+  select: '単一選択',
+  checkbox: '複数選択',
+}
+
+function formAnswerText(v: FormAnswerValue | undefined): string {
+  if (v == null) return ''
+  return Array.isArray(v) ? v.join('、') : v
+}
+
+// 汎用フォームツール — 質問項目＋招待メンバーを作成者/管理者が設定し、招待者は
+// 項目ごとに回答する。全員が回答し終えるとタスクは自動的に完了になる
+// （store.tsx の respondToForm）
+function FormSection({
+  task,
+  currentUserId,
+  isAdmin,
+  members,
+  onSetForm,
+  onRespondForm,
+}: {
+  task: Task
+  currentUserId: string | null
+  isAdmin: boolean
+  members: Member[]
+  onSetForm: (fields: FormFieldDef[], invitedIds: string[]) => void
+  onRespondForm: (responses: Record<string, FormAnswerValue>) => void
+}) {
+  const form = task.form
+  const canConfigure = isAdmin || task.createdById === currentUserId
+  const [configOpen, setConfigOpen] = useState(false)
+  const [fieldDraft, setFieldDraft] = useState<FormFieldDef[]>([])
+  const [inviteDraft, setInviteDraft] = useState<string[]>([])
+  const [newLabel, setNewLabel] = useState('')
+  const [newType, setNewType] = useState<FormFieldType>('text')
+  const [newOptions, setNewOptions] = useState('')
+  const [newRequired, setNewRequired] = useState(true)
+  const [responseDraft, setResponseDraft] = useState<Record<string, FormAnswerValue>>({})
+
+  useEffect(() => {
+    setResponseDraft((currentUserId && form?.responses[currentUserId]) || {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.id, currentUserId])
+
+  if (!form && !canConfigure) return null
+
+  const openConfig = () => {
+    setFieldDraft(form?.fields ?? [])
+    setInviteDraft(form?.invitedIds ?? [])
+    setConfigOpen(true)
+  }
+
+  const addField = () => {
+    if (!newLabel.trim()) return
+    const options =
+      newType === 'select' || newType === 'checkbox'
+        ? newOptions
+            .split(/[、,,\n]/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined
+    if ((newType === 'select' || newType === 'checkbox') && (!options || options.length === 0)) return
+    setFieldDraft((prev) => [
+      ...prev,
+      {
+        id: `ff-${Math.random().toString(36).slice(2, 9)}`,
+        label: newLabel.trim(),
+        type: newType,
+        options,
+        required: newRequired,
+      },
+    ])
+    setNewLabel('')
+    setNewOptions('')
+    setNewRequired(true)
+  }
+
+  const saveConfig = () => {
+    if (fieldDraft.length === 0 || inviteDraft.length === 0) return
+    onSetForm(fieldDraft, inviteDraft)
+    setConfigOpen(false)
+  }
+
+  const isInvited = !!currentUserId && !!form?.invitedIds.includes(currentUserId)
+  const canRespond = isInvited && task.status !== 'done'
+  const canSubmitResponse =
+    !!form && form.fields.every((f) => !f.required || !!formAnswerText(responseDraft[f.id]))
+
+  return (
+    <div className="mt-6">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          フォーム
+        </div>
+        {canConfigure && (
+          <button
+            onClick={openConfig}
+            className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <Pencil className="size-3" />
+            {form ? '編集' : '設定'}
+          </button>
+        )}
+      </div>
+
+      {!form && !configOpen && <p className="text-sm text-muted-foreground">まだ設定されていません。</p>}
+
+      {form && !configOpen && (
+        <div className="flex flex-col gap-3">
+          {canRespond && (
+            <div className="rounded-lg border border-border bg-secondary/40 p-3">
+              <div className="flex flex-col gap-3">
+                {form.fields.map((f) => (
+                  <div key={f.id}>
+                    <p className="mb-1 text-sm">
+                      {f.label}
+                      {f.required && <span className="ml-0.5 text-destructive">*</span>}
+                    </p>
+                    {f.type === 'text' && (
+                      <input
+                        value={(responseDraft[f.id] as string) ?? ''}
+                        onChange={(e) =>
+                          setResponseDraft((prev) => ({ ...prev, [f.id]: e.target.value }))
+                        }
+                        className="h-8 w-full rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-primary"
+                      />
+                    )}
+                    {f.type === 'textarea' && (
+                      <textarea
+                        value={(responseDraft[f.id] as string) ?? ''}
+                        onChange={(e) =>
+                          setResponseDraft((prev) => ({ ...prev, [f.id]: e.target.value }))
+                        }
+                        rows={3}
+                        className="w-full resize-none rounded-md border border-border bg-card px-2 py-1.5 text-sm outline-none focus:border-primary"
+                      />
+                    )}
+                    {f.type === 'select' && (
+                      <select
+                        value={(responseDraft[f.id] as string) ?? ''}
+                        onChange={(e) =>
+                          setResponseDraft((prev) => ({ ...prev, [f.id]: e.target.value }))
+                        }
+                        className="h-8 w-full rounded-md border border-border bg-card px-2 text-sm outline-none focus:border-primary"
+                      >
+                        <option value="">選択してください</option>
+                        {(f.options ?? []).map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {f.type === 'checkbox' && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {(f.options ?? []).map((o) => {
+                          const current = (responseDraft[f.id] as string[]) ?? []
+                          const checked = current.includes(o)
+                          return (
+                            <button
+                              key={o}
+                              type="button"
+                              onClick={() =>
+                                setResponseDraft((prev) => ({
+                                  ...prev,
+                                  [f.id]: checked
+                                    ? current.filter((v) => v !== o)
+                                    : [...current, o],
+                                }))
+                              }
+                              className={cn(
+                                'rounded-full border px-2.5 py-1 text-xs',
+                                checked
+                                  ? 'border-primary bg-primary-muted text-primary'
+                                  : 'border-border text-muted-foreground hover:bg-secondary',
+                              )}
+                            >
+                              {o}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <Button
+                className="mt-3 h-8 w-full"
+                disabled={!canSubmitResponse}
+                onClick={() => onRespondForm(responseDraft)}
+              >
+                回答を送信
+              </Button>
+            </div>
+          )}
+
+          <div className="overflow-x-auto orbit-scroll">
+            <table className="w-full min-w-[320px] border-collapse text-xs">
+              <thead>
+                <tr>
+                  <th className="border-b border-border px-1.5 py-1 text-left font-medium text-muted-foreground">
+                    質問
+                  </th>
+                  {form.invitedIds.map((mid) => {
+                    const m = members.find((mm) => mm.id === mid)
+                    return (
+                      <th
+                        key={mid}
+                        className="border-b border-border px-1.5 py-1 text-left font-medium text-muted-foreground"
+                      >
+                        {m?.displayName || m?.name || '不明'}
+                      </th>
+                    )
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {form.fields.map((f) => (
+                  <tr key={f.id}>
+                    <td className="border-b border-border/60 px-1.5 py-1">{f.label}</td>
+                    {form.invitedIds.map((mid) => {
+                      const answer = form.responses[mid]?.[f.id]
+                      return (
+                        <td key={mid} className="border-b border-border/60 px-1.5 py-1">
+                          {answer != null && formAnswerText(answer) ? (
+                            formAnswerText(answer)
+                          ) : (
+                            <span className="text-muted-foreground">未回答</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {task.status === 'done' && (
+            <p className="text-xs font-medium text-emerald-700">全員が回答し、タスクは完了になりました。</p>
+          )}
+        </div>
+      )}
+
+      {configOpen && (
+        <div className="rounded-lg border border-border bg-secondary/40 p-3">
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">質問項目</p>
+          <ul className="mb-2 flex flex-col gap-1">
+            {fieldDraft.map((f) => (
+              <li key={f.id} className="flex items-center justify-between gap-2 text-sm">
+                <span>
+                  {f.label}
+                  <span className="ml-1.5 text-xs text-muted-foreground">
+                    （{FORM_FIELD_TYPE_LABEL[f.type]}
+                    {f.required ? '・必須' : ''}）
+                  </span>
+                </span>
+                <button
+                  onClick={() => setFieldDraft((prev) => prev.filter((x) => x.id !== f.id))}
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label="削除"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="mb-3 flex flex-col gap-1.5 rounded-md border border-dashed border-border-strong p-2">
+            <input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              placeholder="質問文（例：参加できますか？）"
+              className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-primary"
+            />
+            <div className="flex items-center gap-1.5">
+              <select
+                value={newType}
+                onChange={(e) => setNewType(e.target.value as FormFieldType)}
+                className="h-8 flex-1 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-primary"
+              >
+                {(Object.keys(FORM_FIELD_TYPE_LABEL) as FormFieldType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {FORM_FIELD_TYPE_LABEL[t]}
+                  </option>
+                ))}
+              </select>
+              <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={newRequired}
+                  onChange={(e) => setNewRequired(e.target.checked)}
+                  className="size-3.5 cursor-pointer accent-primary"
+                />
+                必須
+              </label>
+            </div>
+            {(newType === 'select' || newType === 'checkbox') && (
+              <input
+                value={newOptions}
+                onChange={(e) => setNewOptions(e.target.value)}
+                placeholder="選択肢をカンマ区切りで（例：〇,△,×）"
+                className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-primary"
+              />
+            )}
+            <button
+              onClick={addField}
+              disabled={!newLabel.trim()}
+              className="flex h-8 items-center justify-center gap-1 rounded-md border border-border-strong px-2 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-40"
+            >
+              <Plus className="size-3.5" />
+              質問を追加
+            </button>
+          </div>
+
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">回答してもらうメンバー</p>
+          <div className="mb-3 flex max-h-40 flex-col gap-1 overflow-y-auto orbit-scroll">
+            {members.map((m) => {
+              const checked = inviteDraft.includes(m.id)
+              return (
+                <button
+                  key={m.id}
+                  onClick={() =>
+                    setInviteDraft((prev) =>
+                      checked ? prev.filter((id) => id !== m.id) : [...prev, m.id],
+                    )
+                  }
+                  className={cn(
+                    'flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-secondary',
+                    checked && 'bg-primary-muted',
+                  )}
+                >
+                  <Avatar member={m} size={20} />
+                  {m.displayName || m.name}
+                  {checked && <Check className="ml-auto size-3.5 text-primary" />}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" className="h-8" onClick={() => setConfigOpen(false)}>
+              キャンセル
+            </Button>
+            <Button
+              className="h-8"
+              disabled={fieldDraft.length === 0 || inviteDraft.length === 0}
               onClick={saveConfig}
             >
               保存

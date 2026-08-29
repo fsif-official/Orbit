@@ -22,6 +22,8 @@ import type {
   RecurringTaskRule,
   Qualification,
   Role,
+  FormAnswerValue,
+  FormFieldDef,
   ScheduleCandidate,
   ScheduleResponseValue,
   SkillLevel,
@@ -29,6 +31,7 @@ import type {
   Task,
   TaskComment,
   TaskDeliverable,
+  TaskForm,
   TaskHistoryEntry,
   TaskRetrospective,
   TaskSchedule,
@@ -284,6 +287,14 @@ interface OrbitContextValue extends OrbitState {
     invitedIds: string[],
   ) => void
   respondToSchedule: (id: string, memberId: string, responses: Record<string, ScheduleResponseValue>) => void
+  setTaskForm: (id: string, fields: FormFieldDef[], invitedIds: string[]) => void
+  createFormTask: (
+    projectId: string,
+    name: string,
+    fields: FormFieldDef[],
+    invitedIds: string[],
+  ) => void
+  respondToForm: (id: string, memberId: string, responses: Record<string, FormAnswerValue>) => void
   addDeliverable: (id: string, label: string, url: string) => void
   removeDeliverable: (id: string, deliverableId: string) => void
   addComment: (id: string, text: string) => void
@@ -2313,6 +2324,116 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [currentUserId, runRemote, reportRemoteError],
   )
 
+  // 汎用フォームツール — 質問項目＋招待メンバーを設定する（作成者/管理者）
+  const setTaskForm = useCallback(
+    (id: string, fields: FormFieldDef[], invitedIds: string[]) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          const form: TaskForm = {
+            fields,
+            invitedIds,
+            responses: t.form?.responses ?? {},
+          }
+          if (isRemoteConfigured) runRemote(remoteApi.updateTaskForm(id, form))
+          return { ...t, form }
+        }),
+      )
+    },
+    [runRemote],
+  )
+
+  // 招待されたメンバーが回答する。招待者全員が回答し終えたら自動的に
+  // タスクを完了にし、作成者へ結果を通知する
+  const respondToForm = useCallback(
+    (id: string, memberId: string, responses: Record<string, FormAnswerValue>) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id || !t.form) return t
+          const nextForm: TaskForm = {
+            ...t.form,
+            responses: { ...t.form.responses, [memberId]: responses },
+          }
+          const allDone = t.form.invitedIds.every((mid) => !!nextForm.responses[mid])
+          if (isRemoteConfigured) runRemote(remoteApi.updateTaskForm(id, nextForm))
+          if (allDone && t.status !== 'done') {
+            const today = new Date().toISOString().slice(0, 10)
+            if (isRemoteConfigured) {
+              runRemote(remoteApi.updateTaskStatus(id, 'done'))
+              runRemote(remoteApi.notifyFormResult(id))
+            }
+            return appendHistory(
+              { ...t, form: nextForm, status: 'done', completedDate: today, lastActivity: today },
+              'status',
+              STATUS_LABEL[t.status],
+              STATUS_LABEL.done,
+            )
+          }
+          return { ...t, form: nextForm }
+        }),
+      )
+    },
+    [runRemote, appendHistory],
+  )
+
+  // INPUT画面の「クイック追加」から、フォーム専用のタスクを新規作成する。
+  // createScheduleTaskと同じ理由でcreate→実IDへの差し替え→form書き込み、の順で直列に行う
+  const createFormTask = useCallback(
+    (projectId: string, name: string, fields: FormFieldDef[], invitedIds: string[]) => {
+      const tempId = `t-${Math.random().toString(36).slice(2, 9)}`
+      const today = new Date().toISOString().slice(0, 10)
+      const form: TaskForm = { fields, invitedIds, responses: {} }
+      const newTask: Task = {
+        id: tempId,
+        name,
+        description: '',
+        projectId,
+        department: '未分類',
+        assigneeIds: [],
+        deadline: null,
+        category: 'フォーム',
+        skills: [],
+        difficulty: '新人歓迎',
+        priority: '中',
+        status: 'todo',
+        lastActivity: today,
+        createdById: currentUserId ?? undefined,
+        createdAt: new Date().toISOString(),
+        progressHistory: [],
+        pendingApproval: false,
+        form,
+      }
+      setTasks((prev) => [newTask, ...prev])
+
+      if (isRemoteConfigured) {
+        remoteApi
+          .createTasks([
+            {
+              tempId,
+              title: name,
+              projectId,
+              department: '未分類',
+              category: 'フォーム',
+              skills: [],
+              difficulty: '新人歓迎',
+              priority: '中',
+              deadline: null,
+              creatorId: currentUserId ?? undefined,
+              pendingApproval: false,
+            },
+          ])
+          .then((mapping) => {
+            const realId = mapping.find((m) => m.tempId === tempId)?.id
+            if (!realId) return
+            setTasks((prev) => prev.map((t) => (t.id === tempId ? { ...t, id: realId } : t)))
+            runRemote(remoteApi.updateTaskForm(realId, form))
+          })
+          .catch(reportRemoteError)
+      }
+    },
+    [currentUserId, runRemote, reportRemoteError],
+  )
+
   // 成果物リンク管理（item 12） — Drive/Canva/GitHub/Figma等へのリンクを
   // タスクに複数紐付ける
   const addDeliverable = useCallback(
@@ -2815,6 +2936,9 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     setTaskSchedule,
     createScheduleTask,
     respondToSchedule,
+    setTaskForm,
+    createFormTask,
+    respondToForm,
     addDeliverable,
     removeDeliverable,
     addComment,

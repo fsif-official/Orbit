@@ -12,6 +12,8 @@ import type {
   ParsedTask,
   Department,
   Difficulty,
+  FormFieldDef,
+  FormFieldType,
   Member,
   Priority,
   Project,
@@ -37,6 +39,7 @@ import {
   CalendarClock,
   Check,
   FileSpreadsheet,
+  FileText,
   History,
   LayoutTemplate,
   Plus,
@@ -77,6 +80,7 @@ export function InputScreen() {
     taskSetTemplates,
     applyTaskSetTemplate,
     createScheduleTask,
+    createFormTask,
     isFullAdmin,
   } = useOrbit()
   const { go } = useNav()
@@ -432,6 +436,7 @@ export function InputScreen() {
                   />
                 )}
                 <ScheduleQuickAdd projects={projects} members={members} onCreate={createScheduleTask} />
+                <FormQuickAdd projects={projects} members={members} onCreate={createFormTask} />
               </div>
             </div>
           )}
@@ -991,6 +996,248 @@ function ScheduleQuickAdd({
         <Button
           className="h-9 self-end"
           disabled={!projectId || !name.trim() || candidates.length === 0 || invitedIds.length === 0}
+          onClick={submit}
+        >
+          <Plus className="size-4" />
+          作成
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+const FORM_FIELD_TYPE_LABEL: Record<FormFieldType, string> = {
+  text: '一行テキスト',
+  textarea: '複数行テキスト',
+  select: '単一選択',
+  checkbox: '複数選択',
+}
+
+// 汎用フォームタスクの作成 — 自由に質問項目を組み立て、回答してもらう
+// メンバーを選ぶ。回答は招待者全員が終えると自動的にタスク完了になり、
+// 作成者に結果が通知される（store.tsx の createFormTask/respondToForm）
+function FormQuickAdd({
+  projects,
+  members,
+  onCreate,
+}: {
+  projects: Project[]
+  members: Member[]
+  onCreate: (projectId: string, name: string, fields: FormFieldDef[], invitedIds: string[]) => void
+}) {
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [projectId, setProjectId] = useState('')
+  const [name, setName] = useState('')
+  const [fields, setFields] = useState<FormFieldDef[]>([])
+  const [newLabel, setNewLabel] = useState('')
+  const [newType, setNewType] = useState<FormFieldType>('text')
+  const [newOptions, setNewOptions] = useState('')
+  const [newRequired, setNewRequired] = useState(true)
+  const [invitedIds, setInvitedIds] = useState<string[]>([])
+
+  const addField = () => {
+    if (!newLabel.trim()) return
+    const options =
+      newType === 'select' || newType === 'checkbox'
+        ? newOptions
+            .split(/[、,,\n]/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined
+    if ((newType === 'select' || newType === 'checkbox') && (!options || options.length === 0)) return
+    setFields((prev) => [
+      ...prev,
+      {
+        id: `ff-${Math.random().toString(36).slice(2, 9)}`,
+        label: newLabel.trim(),
+        type: newType,
+        options,
+        required: newRequired,
+      },
+    ])
+    setNewLabel('')
+    setNewOptions('')
+    setNewRequired(true)
+  }
+
+  const reset = () => {
+    setProjectId('')
+    setName('')
+    setFields([])
+    setNewLabel('')
+    setNewOptions('')
+    setNewRequired(true)
+    setInvitedIds([])
+  }
+
+  const submit = () => {
+    if (!projectId || !name.trim() || fields.length === 0 || invitedIds.length === 0) return
+    onCreate(projectId, name.trim(), fields, invitedIds)
+    toast(`「${name.trim()}」を作成しました。招待した${invitedIds.length}人が全員回答すると自動的に完了します`)
+    setOpen(false)
+    reset()
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-2 rounded-xl border border-dashed border-border-strong bg-card px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary"
+      >
+        <FileText className="size-4 shrink-0" />
+        フォームタスクを作成
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          <FileText className="size-4" />
+          フォームタスクを作成
+        </span>
+        <button
+          onClick={() => {
+            setOpen(false)
+            reset()
+          }}
+          aria-label="閉じる"
+        >
+          <X className="size-4 text-muted-foreground" />
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        <div className="flex flex-wrap gap-2">
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            className="h-9 min-w-[140px] flex-1 cursor-pointer rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary"
+          >
+            <option value="">プロジェクトを選択</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="タスク名（例：イベント参加アンケート）"
+            className="h-9 min-w-[180px] flex-[2] rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary"
+          />
+        </div>
+
+        <div>
+          <p className="mb-1 text-xs font-medium text-muted-foreground">質問項目</p>
+          {fields.length > 0 && (
+            <ul className="mb-1.5 flex flex-col gap-1">
+              {fields.map((f) => (
+                <li
+                  key={f.id}
+                  className="flex items-center justify-between gap-2 rounded-md bg-secondary/60 px-2 py-1 text-sm"
+                >
+                  <span>
+                    {f.label}
+                    <span className="ml-1.5 text-xs text-muted-foreground">
+                      （{FORM_FIELD_TYPE_LABEL[f.type]}
+                      {f.required ? '・必須' : ''}）
+                    </span>
+                  </span>
+                  <button
+                    onClick={() => setFields((prev) => prev.filter((x) => x.id !== f.id))}
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label="削除"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-col gap-1.5 rounded-md border border-dashed border-border-strong p-2">
+            <input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              placeholder="質問文（例：参加できますか？）"
+              className="h-9 rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary"
+            />
+            <div className="flex items-center gap-1.5">
+              <select
+                value={newType}
+                onChange={(e) => setNewType(e.target.value as FormFieldType)}
+                className="h-9 flex-1 rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary"
+              >
+                {(Object.keys(FORM_FIELD_TYPE_LABEL) as FormFieldType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {FORM_FIELD_TYPE_LABEL[t]}
+                  </option>
+                ))}
+              </select>
+              <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={newRequired}
+                  onChange={(e) => setNewRequired(e.target.checked)}
+                  className="size-3.5 cursor-pointer accent-primary"
+                />
+                必須
+              </label>
+            </div>
+            {(newType === 'select' || newType === 'checkbox') && (
+              <input
+                value={newOptions}
+                onChange={(e) => setNewOptions(e.target.value)}
+                placeholder="選択肢をカンマ区切りで（例：〇,△,×）"
+                className="h-9 rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary"
+              />
+            )}
+            <button
+              onClick={addField}
+              disabled={!newLabel.trim()}
+              className="flex h-9 shrink-0 items-center justify-center gap-1 rounded-lg border border-dashed border-border-strong px-2.5 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-40"
+            >
+              <Plus className="size-3.5" />
+              質問を追加
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-1 text-xs font-medium text-muted-foreground">回答してもらうメンバー</p>
+          <div className="flex max-h-32 flex-col gap-0.5 overflow-y-auto rounded-lg border border-border p-1 orbit-scroll">
+            {members.map((m) => {
+              const checked = invitedIds.includes(m.id)
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() =>
+                    setInvitedIds((prev) =>
+                      checked ? prev.filter((id) => id !== m.id) : [...prev, m.id],
+                    )
+                  }
+                  className={cn(
+                    'flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-secondary',
+                    checked && 'bg-primary-muted',
+                  )}
+                >
+                  <Avatar member={m} size={20} />
+                  {m.displayName || m.name}
+                  {checked && <Check className="ml-auto size-3.5 text-primary" />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <Button
+          className="h-9 self-end"
+          disabled={!projectId || !name.trim() || fields.length === 0 || invitedIds.length === 0}
           onClick={submit}
         >
           <Plus className="size-4" />
