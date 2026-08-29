@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useOrbit } from '@/lib/orbit/store'
 import { useNav } from '@/lib/orbit/nav'
@@ -22,11 +22,13 @@ import type {
 import { ParsedTaskCard } from './parsed-task-card'
 import { Avatar, OrbitMark, SectionLabel, StatusBadge } from '../primitives'
 import { formatDateTime, findSimilarTasks } from '@/lib/orbit/utils'
+import { parseTasksFromExcelFile } from '@/lib/orbit/import-excel'
 import { cn } from '@/lib/utils'
 import {
   ArrowRight,
   CalendarClock,
   Check,
+  FileSpreadsheet,
   History,
   LayoutTemplate,
   Plus,
@@ -80,6 +82,9 @@ export function InputScreen() {
   const [registered, setRegistered] = useState(false)
   const [historyInput, setHistoryInput] = useState<TaskInput | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [importError, setImportError] = useState<string | null>(null)
+  const [importSource, setImportSource] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const myInputs = inputs.filter((i) => i.createdById === currentUser?.id)
 
@@ -125,6 +130,36 @@ export function InputScreen() {
     }, 1600)
   }
 
+  // Excelファイルは列の並び・型が保証されないので、ヘッダー文字列を見て
+  // タスク名・プロジェクトなどの列を判別する（lib/orbit/import-excel.ts）。
+  // 取り込んだ結果はテキスト解析と同じ確認画面に流し、そこで内容を修正できる
+  const handleExcelFile = async (file: File) => {
+    if (projects.length === 0) return
+    setImportError(null)
+    try {
+      const result = await parseTasksFromExcelFile(file, projects, members)
+      if (result.error) {
+        setImportError(result.error)
+        return
+      }
+      if (result.parsed.length === 0) {
+        setImportError('タスクとして読み込める行が見つかりませんでした')
+        return
+      }
+      setImportSource(`Excelインポート: ${file.name}`)
+      setParsed(result.parsed)
+      setSelectedIds(new Set())
+      setPhase('result')
+      toast(
+        result.skippedRows > 0
+          ? `${result.parsed.length}件を読み込みました（タスク名が空の${result.skippedRows}行はスキップ）`
+          : `${result.parsed.length}件を読み込みました`,
+      )
+    } catch {
+      setImportError('ファイルを読み込めませんでした。Excel(.xlsx)形式か確認してください')
+    }
+  }
+
   // 解析結果のうち、既存タスクと似ているものだけを抜き出したもの。各カードにも
   // 同じ警告が出るが、件数が多いとスクロールして見落とすため、ここでもまとめて示す
   const duplicateFlags = useMemo(
@@ -155,12 +190,13 @@ export function InputScreen() {
   const handleRegister = () => {
     const approved = parsed.filter((p) => p.approved)
     if (approved.length === 0) return
-    addTasksFromInput(text, approved)
+    addTasksFromInput(importSource ?? text, approved)
     toast(`${approved.length}件のタスクを登録しました`)
     setPhase('input')
     setText('')
     setParsed([])
     setSelectedIds(new Set())
+    setImportSource(null)
     setRegistered(true)
   }
 
@@ -253,6 +289,38 @@ export function InputScreen() {
               <TriangleAlert className="size-4" />
               分類できませんでした。内容を確認して手動で編集してください。
             </p>
+          )}
+          {importError && (
+            <p className="mt-2.5 flex items-center gap-1.5 text-sm text-destructive">
+              <TriangleAlert className="size-4" />
+              {importError}
+            </p>
+          )}
+
+          {/* Excelインポート — 列の並び・型は保証されないので、ヘッダー文字列を
+              手がかりにタスク名・プロジェクトなどを判別する（lib/orbit/import-excel.ts） */}
+          {phase === 'input' && projects.length > 0 && (
+            <div className="mt-3 flex justify-center">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ''
+                  if (file) void handleExcelFile(file)
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline"
+              >
+                <FileSpreadsheet className="size-3.5" />
+                Excelファイルから読み込む
+              </button>
+            </div>
           )}
 
           {/* demo helper */}
@@ -358,8 +426,12 @@ export function InputScreen() {
         <div className="animate-in fade-in slide-in-from-bottom-2">
           <div className="mb-5">
             <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-              <Sparkles className="size-3.5 text-primary" />
-              解析結果
+              {importSource ? (
+                <FileSpreadsheet className="size-3.5 text-primary" />
+              ) : (
+                <Sparkles className="size-3.5 text-primary" />
+              )}
+              {importSource ? 'Excelインポート結果' : '解析結果'}
             </div>
             <h2 className="text-xl font-semibold tracking-tight">
               {parsed.length}件のタスクを見つけました
@@ -529,6 +601,7 @@ export function InputScreen() {
                   setPhase('input')
                   setParsed([])
                   setSelectedIds(new Set())
+                  setImportSource(null)
                 }}
               >
                 やり直す
