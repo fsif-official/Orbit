@@ -2,7 +2,8 @@
 
 このドキュメントは、Orbit（Next.js 16 App Router / 静的エクスポート / GitHub Pagesでホスト）に
 「各メンバーが自分のGoogleアカウントで、自分個人のスプレッドシートにタスクデータを同期できる」
-機能を追加するための仕様書です。別セッション・別LLMがこのファイルだけを読んで実装に着手できることを
+機能と、その土台として必要になる「**実際のGoogleアカウントでのログイン**」（現状は完全にモック）を
+追加するための仕様書です。別セッション・別LLMがこのファイルだけを読んで実装に着手できることを
 目標に、現状のコードベースの構造・命名規則・制約を含めてまとめています。
 
 ## 1. 目的
@@ -38,17 +39,20 @@
 
 ## 3. 提案する仕組み
 
-### 3.1 「サイトログイン」と「個人シート連携」は別物として扱う
+### 3.1 「サイトログイン」と「個人シート連携」は同じ仕組み・別のスコープ要求として扱う
 
-この2つを1つのOAuthに統合しない。理由：
-- サイトログイン（誰がOrbitを使っているか）に、Google Sheetsへの書き込み権限を毎回要求するのは
-  過剰な権限要求になる（この機能を使わないメンバーにも同意画面が出てしまう）。
-- サイトログインは現状モックのままでも本機能は成立する。今回のスコープでは
-  **サイトログインには手を付けず**、「個人シート連携」を独立した追加機能として、
-  Account設定（後述）から任意にオンにできる形にする。
-- 将来的にサイトログイン自体を本物のGoogle Sign-Inに置き換える場合も、
-  この節で作るOAuthクライアントをそのまま流用できる設計にしておく（同じGoogle Cloud
-  プロジェクト・同じOAuthクライアントIDを使い、スコープだけ絞る/広げるイメージ）。
+Google Cloud側のプロジェクト・OAuthクライアントID・読み込むGISスクリプトは **1つを共用** する
+（3.2の手順は1回だけ行えばよい）。ただし **同意を求めるスコープと、要求するタイミングは分ける**：
+
+- **サイトログイン**：ログイン時に毎回、最小スコープ（`openid email profile` 相当。
+  Sheetsへの書き込み権限は含まない）だけを要求する。詳細は3.6。
+- **個人シート連携**：メンバーが「アカウント設定」からこの機能を明示的にオンにした時だけ、
+  追加で `spreadsheets`（必要なら`drive.file`）スコープを要求する（3.3〜3.5）。
+
+分ける理由：この機能を使わないメンバーにまでSheets書き込み権限の同意画面を見せるのは
+過剰な権限要求になるため。ログインとシート連携で同意ダイアログが2段階になる
+（ログイン時は素のGoogle認証のみ、シート連携オン時に追加でSheetsアクセスを求める）UXになるが、
+これは意図的な設計。
 
 ### 3.2 Google Cloud側の準備（実装者が最初にやること）
 
@@ -125,6 +129,56 @@
   `values:update`（決まった範囲を洗い替え）のどちらにするかは要件次第 — 「ログを溜めたい」なら
   append、「常に最新の担当タスク一覧を表示したい」ならupdateで全洗い替えが良い。
 
+### 3.6 実際のGoogleログインの実装
+
+現状の `components/orbit/login-screen.tsx` の「Googleでログイン」→「デモユーザーを選択」を、
+実際のGoogleアカウントでのログインに置き換える。
+
+**方式**：3.3と同じ Google Identity Services の **Token Client** を、スコープだけ変えて再利用する
+（`openid email profile` — Sheetsへの権限は要求しない）。Googleが提供する「Sign In With Google」の
+公式ボタン／One Tap（IDトークン方式）は、Googleの見た目・挙動の制約が強く、既存の
+`GoogleGlyph()` を使ったカスタムデザインのボタンとは相性が悪いため、**このプロジェクトでは
+Token Client方式（アクセストークンを取得し、userinfoエンドポイントに投げてメールアドレスを得る）を
+推奨**する。理由：
+- 見た目を今のボタンのまま維持できる（`onClick` から `initTokenClient().requestAccessToken()` を
+  呼ぶだけで、Googleの埋め込みボタンを表示する必要がない）。
+- 3.3で作るOAuth基盤（GISスクリプト読み込み、トークンクライアント初期化）をそのまま流用でき、
+  実装が二重にならない。
+
+**フロー**：
+
+1. `handleGoogle()`（`login-screen.tsx`）を、`setTimeout` のモックから以下に置き換える：
+   ```
+   const client = google.accounts.oauth2.initTokenClient({
+     client_id: NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID,
+     scope: 'openid email profile',
+     callback: async (resp) => {
+       const info = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+         headers: { Authorization: `Bearer ${resp.access_token}` },
+       }).then((r) => r.json())
+       // info.email がGoogleアカウントのメールアドレス
+       handleLoginResult(info.email)
+     },
+   })
+   client.requestAccessToken()
+   ```
+2. `handleLoginResult(email)` で、`members` 配列を `member.email`（既存フィールド、
+   カンマ区切りで複数登録可 — `lib/orbit/types.ts` の `Member.email` 参照）と
+   大文字小文字を無視して照合する。ヒットしたら既存の `login(member.id)`
+   （`lib/orbit/store.tsx`）をそのまま呼ぶ — ログイン後のセッション保持・永続化の仕組みは
+   一切変更不要（`currentUserId` は既にlocalStorageに保存される作りになっている）。
+3. マッチしなかった場合の扱い（要決定・実装者への申し送り事項）：
+   - 単純な案：「このGoogleアカウントは登録されていません。管理者にメールアドレスの登録を
+     依頼してください」というエラーメッセージを表示するだけ。Admin → Membersで
+     管理者が事前に各メンバーのメールアドレスを登録しておく運用が前提になる。
+   - 移行期の保険として、既存の「デモユーザーを選択」モーダルを完全には削除せず、
+     「（開発用）デモユーザーとしてログイン」のような目立たないリンクとして残す案もある
+     （本番運用が安定したら削除）。
+4. スコープからは意図的に外すが、実装者が判断に迷わないよう明記：**メールアドレスの逆引きだけで
+   なりすまし対策として十分か**は、団体の管理体制次第。より厳密にしたい場合は、GoogleアカウントIDや
+   Google Workspaceのドメイン（`hd` クレーム）で絞り込む、といった追加の検証を入れる余地がある。
+   このドキュメントではv1として「登録メールアドレスとの一致」のみを仕様とする。
+
 ## 4. 実装ステップ（チェックリスト）
 
 1. Google Cloud ConsoleでOAuthクライアントIDを発行し、`NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID` として
@@ -139,13 +193,16 @@
    これは団体設定ではなく個人ローカル設定なので、Settingsシート同期（`isSettingsConfigured`）とは
    別系統にする。
 4. `components/orbit/people/person-detail.tsx` の「アカウント設定」ブロックにUIを追加。
-5. `pnpm add xlsx` は既に入っているので流用不要。新規追加パッケージは無し（GISはscriptタグ経由、
+5. `components/orbit/login-screen.tsx` の `handleGoogle()` を3.6の実装に置き換える。
+   `lib/orbit/store.tsx` の `login`/`logout` は変更不要（そのまま使う）。
+6. `pnpm add xlsx` は既に入っているので流用不要。新規追加パッケージは無し（GISはscriptタグ経由、
    Sheets APIはfetch直叩きのため、npmパッケージの追加は不要）。
-6. `next/script` でGISのスクリプトタグをレイアウト（`app/layout.tsx`）か、
-   利用箇所（person-detail.tsx）にだけ動的に挿入するかは実装者の判断。使う画面でだけ読み込む方が
-   静的サイト全体の初期ロードに影響しないので望ましい。
-7. README（`gas/README.md` もしくは新規 `docs/`）に、この機能を使うための管理者向けセットアップ手順
-   （OAuthクライアントID発行手順、`.env` への追記、GitHub Secretsへの登録）を追記する。
+7. `next/script` でGISのスクリプトタグを `app/layout.tsx` に追加する
+   （ログイン画面・アカウント設定の両方で使うため、person-detail.tsx限定ではなく全体で
+   読み込むのが妥当）。
+8. README（`gas/README.md` もしくは新規 `docs/`）に、この機能を使うための管理者向けセットアップ手順
+   （OAuthクライアントID発行手順、`.env` への追記、GitHub Secretsへの登録、各メンバーの
+   メールアドレス登録がログインの前提になる旨）を追記する。
 
 ## 5. 制約・注意点
 
@@ -165,7 +222,8 @@
 
 ## 6. スコープ外（このドキュメントでは扱わない）
 
-- サイトの「Googleでログイン」を本物のGoogle Sign-Inに置き換える作業そのもの
-  （3.1の通り、意図的に別スコープとしている）。
 - Google Picker APIによるファイル選択UI（v1はID/URL貼り付けで十分という判断）。
 - 自動同期（タスク完了時など）のトリガー設計（v1は手動同期のみ）。
+- ログイン未マッチ時のセルフサインアップ（新規メンバーとしての自動登録）。v1は
+  「事前に管理者がメールアドレスを登録している」ことをログインの前提とする（3.6参照）。
+- Google Workspaceドメイン制限など、なりすまし対策の追加検証（3.6の申し送り事項を参照）。
