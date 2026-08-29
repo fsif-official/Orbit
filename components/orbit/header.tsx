@@ -117,7 +117,7 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur">
-      <div className="mx-auto grid h-14 max-w-[1400px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 sm:px-6">
+      <div className="mx-auto grid h-14 max-w-[1400px] grid-cols-[auto_1fr_auto] items-center gap-2 px-4 sm:grid-cols-[1fr_auto_1fr] sm:gap-4 sm:px-6">
         {/* left */}
         <div className="flex min-w-0 items-center gap-1">
           {canGoBack && (
@@ -137,12 +137,12 @@ export function Header() {
             className="flex shrink-0 items-center gap-2"
           >
             <OrbitMark size={22} />
-            <span className="text-[15px] font-semibold tracking-tight">Orbit</span>
+            <span className="hidden text-[15px] font-semibold tracking-tight sm:inline">Orbit</span>
           </button>
         </div>
 
         {/* center: mode switch */}
-        <div className="flex items-center rounded-lg border border-border bg-secondary p-0.5">
+        <div className="flex min-w-0 items-center justify-center overflow-x-auto rounded-lg border border-border bg-secondary p-0.5 orbit-scroll">
           <ModeButton
             active={isInputActive}
             onClick={() => handleMode('input')}
@@ -173,7 +173,7 @@ export function Header() {
           <button
             type="button"
             onClick={toggle}
-            className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="hidden size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:flex"
             aria-label={theme === 'dark' ? 'ライトモードに切替' : 'ダークモードに切替'}
             title={theme === 'dark' ? 'ライトモード' : 'ダークモード'}
           >
@@ -183,7 +183,7 @@ export function Header() {
               <Moon className="size-[18px]" />
             )}
           </button>
-          <div className="relative" ref={searchRef}>
+          <div className="relative hidden sm:block" ref={searchRef}>
             <button
               type="button"
               onClick={() => setSearchOpen((o) => !o)}
@@ -310,7 +310,7 @@ export function Header() {
               type="button"
               onClick={refreshAll}
               disabled={refreshing}
-              className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
+              className="hidden size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60 sm:flex"
               aria-label="情報を更新"
               title="情報を更新"
             >
@@ -384,7 +384,7 @@ function ModeButton({
       type="button"
       onClick={onClick}
       className={cn(
-        'flex min-w-[204px] flex-col items-center rounded-[7px] px-4 py-1 text-center transition-all',
+        'flex shrink-0 flex-col items-center rounded-[7px] px-3 py-1 text-center transition-all sm:min-w-[204px] sm:px-4',
         active
           ? 'bg-card text-foreground shadow-[0_1px_2px_rgba(16,24,40,0.08)]'
           : 'text-muted-foreground hover:text-foreground',
@@ -393,7 +393,7 @@ function ModeButton({
       <span className="text-[13px] font-semibold tracking-wide">{children}</span>
       <span
         className={cn(
-          'text-[10px] leading-none',
+          'hidden text-[10px] leading-none sm:block',
           active ? 'text-primary' : 'text-muted-foreground/70',
         )}
       >
