@@ -173,7 +173,7 @@ export function Header() {
           <button
             type="button"
             onClick={toggle}
-            className="hidden size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:flex"
+            className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             aria-label={theme === 'dark' ? 'ライトモードに切替' : 'ダークモードに切替'}
             title={theme === 'dark' ? 'ライトモード' : 'ダークモード'}
           >
@@ -183,7 +183,7 @@ export function Header() {
               <Moon className="size-[18px]" />
             )}
           </button>
-          <div className="relative hidden sm:block" ref={searchRef}>
+          <div className="relative" ref={searchRef}>
             <button
               type="button"
               onClick={() => setSearchOpen((o) => !o)}
@@ -310,7 +310,7 @@ export function Header() {
               type="button"
               onClick={refreshAll}
               disabled={refreshing}
-              className="hidden size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60 sm:flex"
+              className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
               aria-label="情報を更新"
               title="情報を更新"
             >
