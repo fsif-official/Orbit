@@ -277,6 +277,12 @@ interface OrbitContextValue extends OrbitState {
   updateActualHours: (id: string, hours: number | null) => void
   updateRetrospective: (id: string, retrospective: TaskRetrospective | null) => void
   setTaskSchedule: (id: string, candidates: ScheduleCandidate[], invitedIds: string[]) => void
+  createScheduleTask: (
+    projectId: string,
+    name: string,
+    candidates: ScheduleCandidate[],
+    invitedIds: string[],
+  ) => void
   respondToSchedule: (id: string, memberId: string, responses: Record<string, ScheduleResponseValue>) => void
   addDeliverable: (id: string, label: string, url: string) => void
   removeDeliverable: (id: string, deliverableId: string) => void
@@ -2241,6 +2247,72 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote, appendHistory],
   )
 
+  // INPUT画面の「クイック追加」から、日程調整専用のタスクを新規作成する。
+  // 承認フローは経由しない（招待メンバーが即座に回答できる必要があるため）。
+  // リモート保存は create → 実IDへの差し替え → schedule書き込み、の順で
+  // 直列に行う（createTasksとupdateTaskScheduleを並行で投げると、後者が
+  // 先にサーバーへ届いた場合に対象行がまだ存在せず失敗しうるため）
+  const createScheduleTask = useCallback(
+    (
+      projectId: string,
+      name: string,
+      candidates: { id: string; label: string }[],
+      invitedIds: string[],
+    ) => {
+      const tempId = `t-${Math.random().toString(36).slice(2, 9)}`
+      const today = new Date().toISOString().slice(0, 10)
+      const schedule: TaskSchedule = { candidates, invitedIds, responses: {} }
+      const newTask: Task = {
+        id: tempId,
+        name,
+        description: '',
+        projectId,
+        department: '未分類',
+        assigneeIds: [],
+        deadline: null,
+        category: '日程調整',
+        skills: [],
+        difficulty: '新人歓迎',
+        priority: '中',
+        status: 'todo',
+        lastActivity: today,
+        createdById: currentUserId ?? undefined,
+        createdAt: new Date().toISOString(),
+        progressHistory: [],
+        pendingApproval: false,
+        schedule,
+      }
+      setTasks((prev) => [newTask, ...prev])
+
+      if (isRemoteConfigured) {
+        remoteApi
+          .createTasks([
+            {
+              tempId,
+              title: name,
+              projectId,
+              department: '未分類',
+              category: '日程調整',
+              skills: [],
+              difficulty: '新人歓迎',
+              priority: '中',
+              deadline: null,
+              creatorId: currentUserId ?? undefined,
+              pendingApproval: false,
+            },
+          ])
+          .then((mapping) => {
+            const realId = mapping.find((m) => m.tempId === tempId)?.id
+            if (!realId) return
+            setTasks((prev) => prev.map((t) => (t.id === tempId ? { ...t, id: realId } : t)))
+            runRemote(remoteApi.updateTaskSchedule(realId, schedule))
+          })
+          .catch(reportRemoteError)
+      }
+    },
+    [currentUserId, runRemote, reportRemoteError],
+  )
+
   // 成果物リンク管理（item 12） — Drive/Canva/GitHub/Figma等へのリンクを
   // タスクに複数紐付ける
   const addDeliverable = useCallback(
@@ -2741,6 +2813,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateActualHours,
     updateRetrospective,
     setTaskSchedule,
+    createScheduleTask,
     respondToSchedule,
     addDeliverable,
     removeDeliverable,
