@@ -20,9 +20,17 @@ import type {
   TaskSetTemplate,
 } from '@/lib/orbit/types'
 import { ParsedTaskCard } from './parsed-task-card'
+import { ExcelColumnMapping } from './excel-column-mapping'
 import { Avatar, OrbitMark, SectionLabel, StatusBadge } from '../primitives'
 import { formatDateTime, findSimilarTasks } from '@/lib/orbit/utils'
-import { parseTasksFromExcelFile } from '@/lib/orbit/import-excel'
+import { buildParsedTasks, detectColumns, readExcelFile } from '@/lib/orbit/import-excel'
+import type {
+  ColumnMapping,
+  ImportField,
+  SheetData,
+  ValueMappedField,
+  ValueMaps,
+} from '@/lib/orbit/import-excel'
 import { cn } from '@/lib/utils'
 import {
   ArrowRight,
@@ -39,7 +47,7 @@ import {
   X,
 } from 'lucide-react'
 
-type Phase = 'input' | 'parsing' | 'result'
+type Phase = 'input' | 'parsing' | 'mapping' | 'result'
 
 // Keeps the in-progress draft text across screen switches (INPUT unmounts
 // whenever the user navigates away), scoped per-user so it doesn't leak
@@ -84,6 +92,9 @@ export function InputScreen() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [importError, setImportError] = useState<string | null>(null)
   const [importSource, setImportSource] = useState<string | null>(null)
+  const [sheetData, setSheetData] = useState<SheetData | null>(null)
+  const [columnMapping, setColumnMapping] = useState<ColumnMapping>({})
+  const [valueMaps, setValueMaps] = useState<ValueMaps>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const myInputs = inputs.filter((i) => i.createdById === currentUser?.id)
@@ -130,34 +141,60 @@ export function InputScreen() {
     }, 1600)
   }
 
-  // Excelファイルは列の並び・型が保証されないので、ヘッダー文字列を見て
-  // タスク名・プロジェクトなどの列を判別する（lib/orbit/import-excel.ts）。
-  // 取り込んだ結果はテキスト解析と同じ確認画面に流し、そこで内容を修正できる
+  // Excelファイルは列の並び・型が保証されないので、まずヘッダー文字列から
+  // 「たぶんこの列だろう」を推測して確認画面（ExcelColumnMapping）を出し、
+  // ユーザーにどの列を使うか・値の対応を確認してもらう。エラーで止めるのではなく
+  // 常にこの確認画面に進み、そこで列を選び直せば必ず取り込める
   const handleExcelFile = async (file: File) => {
     if (projects.length === 0) return
     setImportError(null)
     try {
-      const result = await parseTasksFromExcelFile(file, projects, members)
-      if (result.error) {
-        setImportError(result.error)
-        return
-      }
-      if (result.parsed.length === 0) {
-        setImportError('タスクとして読み込める行が見つかりませんでした')
-        return
-      }
-      setImportSource(`Excelインポート: ${file.name}`)
-      setParsed(result.parsed)
-      setSelectedIds(new Set())
-      setPhase('result')
-      toast(
-        result.skippedRows > 0
-          ? `${result.parsed.length}件を読み込みました（タスク名が空の${result.skippedRows}行はスキップ）`
-          : `${result.parsed.length}件を読み込みました`,
-      )
+      const data = await readExcelFile(file)
+      setSheetData(data)
+      setColumnMapping(detectColumns(data.headers))
+      setValueMaps({})
+      setPhase('mapping')
     } catch {
       setImportError('ファイルを読み込めませんでした。Excel(.xlsx)形式か確認してください')
     }
+  }
+
+  const handleMappingChange = (field: ImportField, header: string | undefined) => {
+    setColumnMapping((prev) => {
+      const next = { ...prev }
+      if (header) next[field] = header
+      else delete next[field]
+      return next
+    })
+  }
+
+  const handleValueMapChange = (field: ValueMappedField, raw: string, mapped: string) => {
+    setValueMaps((prev) => ({ ...prev, [field]: { ...prev[field], [raw]: mapped } }))
+  }
+
+  const handleMappingConfirm = () => {
+    if (!sheetData || !columnMapping.name) return
+    const { parsed: result, skippedRows } = buildParsedTasks(
+      sheetData.rows,
+      columnMapping,
+      valueMaps,
+      projects,
+      members,
+    )
+    if (result.length === 0) {
+      setImportError('タスクとして読み込める行が見つかりませんでした')
+      setPhase('input')
+      return
+    }
+    setImportSource(`Excelインポート: ${sheetData.fileName}`)
+    setParsed(result)
+    setSelectedIds(new Set())
+    setPhase('result')
+    toast(
+      skippedRows > 0
+        ? `${result.length}件を読み込みました（タスク名が空の${skippedRows}行はスキップ）`
+        : `${result.length}件を読み込みました`,
+    )
   }
 
   // 解析結果のうち、既存タスクと似ているものだけを抜き出したもの。各カードにも
@@ -197,12 +234,15 @@ export function InputScreen() {
     setParsed([])
     setSelectedIds(new Set())
     setImportSource(null)
+    setSheetData(null)
+    setColumnMapping({})
+    setValueMaps({})
     setRegistered(true)
   }
 
   return (
     <main className="mx-auto max-w-3xl px-4 pb-24 pt-10 sm:px-6 sm:pt-16">
-      {phase !== 'result' && (
+      {phase !== 'result' && phase !== 'mapping' && (
         <>
           {/* Hero */}
           <div className="mb-8 text-center">
@@ -422,6 +462,25 @@ export function InputScreen() {
         </>
       )}
 
+      {phase === 'mapping' && sheetData && (
+        <ExcelColumnMapping
+          sheetData={sheetData}
+          mapping={columnMapping}
+          onMappingChange={handleMappingChange}
+          valueMaps={valueMaps}
+          onValueMapChange={handleValueMapChange}
+          projects={projects}
+          members={members}
+          onCancel={() => {
+            setPhase('input')
+            setSheetData(null)
+            setColumnMapping({})
+            setValueMaps({})
+          }}
+          onConfirm={handleMappingConfirm}
+        />
+      )}
+
       {phase === 'result' && (
         <div className="animate-in fade-in slide-in-from-bottom-2">
           <div className="mb-5">
@@ -602,6 +661,9 @@ export function InputScreen() {
                   setParsed([])
                   setSelectedIds(new Set())
                   setImportSource(null)
+                  setSheetData(null)
+                  setColumnMapping({})
+                  setValueMaps({})
                 }}
               >
                 やり直す
