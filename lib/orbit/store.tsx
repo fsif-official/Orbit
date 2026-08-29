@@ -174,6 +174,9 @@ interface OrbitContextValue extends OrbitState {
   setSkillFieldSkills: (field: string, skills: string[]) => void
   skillFieldThreshold: number
   setSkillFieldThreshold: (threshold: number) => void
+  orgNotificationEmails: string[]
+  addOrgNotificationEmail: (email: string) => void
+  removeOrgNotificationEmail: (email: string) => void
   setDiscordWebhookUrl: (url: string) => void
   addRecurringRule: (rule: Omit<RecurringTaskRule, 'id' | 'active' | 'lastGeneratedDate'>) => void
   removeRecurringRule: (ruleId: string) => void
@@ -217,11 +220,15 @@ interface OrbitContextValue extends OrbitState {
   updateJudgment: (memberId: string, judgment: string[]) => void
   approveTask: (id: string) => void
   removeTask: (id: string) => void
+  rejectTask: (id: string, reason?: string) => void
   addProject: (name: string, description: string, type?: string) => void
   removeProject: (projectId: string) => void
   updateProjectMembers: (projectId: string, memberIds: string[]) => void
   updateProjectOwner: (projectId: string, ownerId: string | null) => void
   updateProjectDetails: (projectId: string, description: string, type?: string) => void
+  activeProjects: Project[]
+  setProjectArchived: (projectId: string, archived: boolean) => void
+  setProjectOrder: (orderedIds: string[]) => void
   addMember: (name: string, email: string, affiliation: string, role: string) => void
   removeMember: (memberId: string) => void
   updateNotify: (memberId: string, notify: boolean) => void
@@ -304,6 +311,10 @@ const JOB_REQUIREMENTS_STORAGE_KEY = 'orbit-job-requirements'
 // keys, same pattern as jobRequirements
 const SKILL_FIELD_SKILLS_STORAGE_KEY = 'orbit-skill-field-skills'
 const SKILL_FIELD_THRESHOLD_STORAGE_KEY = 'orbit-skill-field-threshold'
+// 団体メール — org_notification_emails のローカルフォールバック
+const ORG_NOTIFICATION_EMAILS_STORAGE_KEY = 'orbit-org-notification-emails'
+// プロジェクトの表示順 — project_order のローカルフォールバック
+const PROJECT_ORDER_STORAGE_KEY = 'orbit-project-order'
 // メンション通知の既読管理 — 端末ローカルのみ（サーバーには保存しない）。
 // currentUserId -> 既読にしたコメントID配列、で複数メンバーを同一端末で
 // 切り替えて使う場合にも既読状態が混ざらないようにする
@@ -426,6 +437,42 @@ function loadSkillFieldThreshold(): number | null {
   }
 }
 
+function loadOrgNotificationEmails(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(ORG_NOTIFICATION_EMAILS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function loadProjectOrder(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(PROJECT_ORDER_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+// order に載っているIDを先にその順序で、載っていないものは元の並びのまま
+// 末尾に追加する（新規プロジェクトが並び替え未設定でも自然に一覧に出るように）
+function sortByOrder<T extends { id: string }>(list: T[], order: string[]): T[] {
+  if (order.length === 0) return list
+  const byId = new Map(list.map((item) => [item.id, item]))
+  const ordered: T[] = []
+  order.forEach((id) => {
+    const item = byId.get(id)
+    if (item) {
+      ordered.push(item)
+      byId.delete(id)
+    }
+  })
+  return [...ordered, ...byId.values()]
+}
+
 function uniq(list: string[]): string[] {
   return Array.from(new Set(list.map((s) => s.trim()).filter(Boolean)))
 }
@@ -466,6 +513,13 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
   const [skillFieldThreshold, setSkillFieldThresholdState] = useState<number>(
     DEFAULT_SKILL_FIELD_THRESHOLD,
   )
+  // 団体メール — 幹部/事業責任者(=full admin)がAdmin > Tagsから登録する共有
+  // 配信先。個々のメンバーのnotify_new_task設定に関わらず常に通知される
+  // （gas/Code.gsのnotifyAdmins()参照）
+  const [orgNotificationEmails, setOrgNotificationEmails] = useState<string[]>([])
+  // プロジェクトの表示順（プロジェクトIDの配列）— Admin > Projectsのドラッグ
+  // 並び替えで設定する、org全体で共有の表示順
+  const [projectOrder, setProjectOrderState] = useState<string[]>([])
   const [onboardedIds, setOnboardedIds] = useState<Set<string>>(new Set())
   const [seenMentionIds, setSeenMentionIds] = useState<Record<string, string[]>>({})
   const [skillCertifiedEvent, setSkillCertifiedEvent] = useState<{
@@ -520,6 +574,10 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       if (Object.keys(savedFieldSkills).length) setSkillFieldSkillsState(savedFieldSkills)
       const savedThreshold = loadSkillFieldThreshold()
       if (savedThreshold !== null) setSkillFieldThresholdState(savedThreshold)
+      const savedOrgEmails = loadOrgNotificationEmails()
+      if (savedOrgEmails.length) setOrgNotificationEmails(savedOrgEmails)
+      const savedProjectOrder = loadProjectOrder()
+      if (savedProjectOrder.length) setProjectOrderState(savedProjectOrder)
     }
     setOnboardedIds(new Set(loadOnboardedIds()))
     setSeenMentionIds(loadSeenMentionIds())
@@ -566,6 +624,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         )
         setSkillFieldSkillsState(s.skillFieldSkills)
         setSkillFieldThresholdState(s.skillFieldThreshold ?? DEFAULT_SKILL_FIELD_THRESHOLD)
+        setOrgNotificationEmails(s.orgNotificationEmails)
+        setProjectOrderState(s.projectOrder)
         setRemoteError(null)
         setSettingsReady(true)
       })
@@ -616,6 +676,8 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
           )
           setSkillFieldSkillsState(settings.skillFieldSkills)
           setSkillFieldThresholdState(settings.skillFieldThreshold ?? DEFAULT_SKILL_FIELD_THRESHOLD)
+          setOrgNotificationEmails(settings.orgNotificationEmails)
+          setProjectOrderState(settings.projectOrder)
         }
         setRemoteError(null)
       })
@@ -811,6 +873,27 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     }
   }, [skillFieldThreshold, hydrated])
 
+  useEffect(() => {
+    if (!hydrated || isSettingsConfigured) return
+    try {
+      window.localStorage.setItem(
+        ORG_NOTIFICATION_EMAILS_STORAGE_KEY,
+        JSON.stringify(orgNotificationEmails),
+      )
+    } catch {
+      /* ignore */
+    }
+  }, [orgNotificationEmails, hydrated])
+
+  useEffect(() => {
+    if (!hydrated || isSettingsConfigured) return
+    try {
+      window.localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(projectOrder))
+    } catch {
+      /* ignore */
+    }
+  }, [projectOrder, hydrated])
+
   // item 17: ポジション要件 — synced via the optional Settings sheet
   // (job_requirements key), same pattern as role_permissions/project_templates
   const setJobRequirements = useCallback(
@@ -873,6 +956,38 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
       const v = Math.min(1, Math.max(0, threshold))
       setSkillFieldThresholdState(v)
       if (isSettingsConfigured) runRemote(remoteApi.updateSetting('skill_field_threshold', String(v)))
+    },
+    [runRemote],
+  )
+
+  // 団体メール — 個々のメンバーの通知設定に関わらず常に通知先へ含める共有
+  // 配信先アドレス。Admin > Tagsで幹部/事業責任者(=full admin)が管理する
+  const addOrgNotificationEmail = useCallback(
+    (email: string) => {
+      const v = email.trim()
+      if (!v || orgNotificationEmails.includes(v)) return
+      const next = [...orgNotificationEmails, v]
+      setOrgNotificationEmails(next)
+      if (isSettingsConfigured)
+        runRemote(remoteApi.updateSetting('org_notification_emails', next.join(',')))
+    },
+    [orgNotificationEmails, runRemote],
+  )
+  const removeOrgNotificationEmail = useCallback(
+    (email: string) => {
+      const next = orgNotificationEmails.filter((e) => e !== email)
+      setOrgNotificationEmails(next)
+      if (isSettingsConfigured)
+        runRemote(remoteApi.updateSetting('org_notification_emails', next.join(',')))
+    },
+    [orgNotificationEmails, runRemote],
+  )
+
+  // プロジェクトの表示順 — Admin > Projectsのドラッグ並び替えから呼ばれる
+  const setProjectOrder = useCallback(
+    (orderedIds: string[]) => {
+      setProjectOrderState(orderedIds)
+      if (isSettingsConfigured) runRemote(remoteApi.updateSetting('project_order', orderedIds.join(',')))
     },
     [runRemote],
   )
@@ -1519,6 +1634,29 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [runRemote],
   )
 
+  // 承認しない（却下） — 承認待ちタスクを削除し、登録者へメールで通知する。
+  // タスク名は削除前（クライアント側の状態がまだ残っている間）に渡す必要が
+  // あるため、removeTaskとは別に組み立てる
+  const rejectTask = useCallback(
+    (id: string, reason?: string) => {
+      const task = tasks.find((t) => t.id === id)
+      setTasks((prev) =>
+        prev
+          .filter((t) => t.id !== id)
+          .map((t) =>
+            t.dependsOnIds?.includes(id)
+              ? { ...t, dependsOnIds: t.dependsOnIds.filter((depId) => depId !== id) }
+              : t,
+          ),
+      )
+      if (isRemoteConfigured) {
+        runRemote(remoteApi.removeTask(id))
+        if (task) runRemote(remoteApi.notifyTaskRejected(task.createdById, task.name, reason))
+      }
+    },
+    [tasks, runRemote],
+  )
+
   const addProject = useCallback(
     (name: string, description: string, type?: string) => {
       const tempProjectId = `p-${Math.random().toString(36).slice(2, 9)}`
@@ -1636,6 +1774,16 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
         prev.map((p) => (p.id === projectId ? { ...p, description, type: type || undefined } : p)),
       )
       if (isRemoteConfigured) runRemote(remoteApi.updateProjectDetails(projectId, description, type))
+    },
+    [runRemote],
+  )
+
+  // プロジェクトのアーカイブ — 削除とは異なり、タスク履歴等は残したまま
+  // OUTPUTの「プロジェクト」タブなど通常の一覧から隠すだけ
+  const setProjectArchived = useCallback(
+    (projectId: string, archived: boolean) => {
+      setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, archived } : p)))
+      if (isRemoteConfigured) runRemote(remoteApi.updateProjectArchived(projectId, archived))
     },
     [runRemote],
   )
@@ -2299,11 +2447,18 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [currentUser, roleLevels, rolePermissions],
   )
 
+  // Admin > Projectsのドラッグ並び替え(projectOrder)を反映した表示順。
+  // 未設定のプロジェクトは元の並び順のまま末尾に追加される
+  const orderedProjects = useMemo(
+    () => sortByOrder(projects, projectOrder),
+    [projects, projectOrder],
+  )
+
   const adminProjects = useMemo(() => {
-    if (isFullAdmin || !currentUser) return projects
+    if (isFullAdmin || !currentUser) return orderedProjects
     const scope = new Set(currentUser.projectIds ?? [])
-    return projects.filter((p) => scope.has(p.id))
-  }, [projects, isFullAdmin, currentUser])
+    return orderedProjects.filter((p) => scope.has(p.id))
+  }, [orderedProjects, isFullAdmin, currentUser])
 
   const adminTasks = useMemo(() => {
     if (isFullAdmin || !currentUser) return visibleTasks
@@ -2410,6 +2565,14 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     [projectTemplates, projects],
   )
 
+  // アーカイブされていないプロジェクトだけ — OUTPUT「プロジェクト」タブや
+  // プロジェクト選択欄など、通常の一覧表示で使う。Admin > Projectsだけは
+  // アーカイブ済みも自前で見せるため、そちらは adminProjects をそのまま使う
+  const activeProjects = useMemo(
+    () => orderedProjects.filter((p) => !p.archived),
+    [orderedProjects],
+  )
+
   const needsOnboarding = !!(
     currentUser &&
     currentUser.will.length === 0 &&
@@ -2432,7 +2595,7 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     pendingTasks,
     archivedTasks,
     members,
-    projects,
+    projects: orderedProjects,
     inputs,
     mode,
     currentUser,
@@ -2474,6 +2637,9 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     setSkillFieldSkills,
     skillFieldThreshold,
     setSkillFieldThreshold,
+    orgNotificationEmails,
+    addOrgNotificationEmail,
+    removeOrgNotificationEmail,
     setDiscordWebhookUrl,
     addRecurringRule,
     removeRecurringRule,
@@ -2499,11 +2665,15 @@ export function OrbitProvider({ children }: { children: React.ReactNode }) {
     updateJudgment,
     approveTask,
     removeTask,
+    rejectTask,
     addProject,
     removeProject,
     updateProjectMembers,
     updateProjectOwner,
     updateProjectDetails,
+    activeProjects,
+    setProjectArchived,
+    setProjectOrder,
     addMember,
     removeMember,
     updateNotify,

@@ -17,7 +17,19 @@ import type {
   TaskSetTemplate,
   TaskSetTemplateItem,
 } from '@/lib/orbit/types'
-import { Check, LayoutTemplate, Pencil, Plus, Repeat, Trash2, UserCog, UserPlus } from 'lucide-react'
+import {
+  Archive,
+  ArchiveRestore,
+  Check,
+  GripVertical,
+  LayoutTemplate,
+  Pencil,
+  Plus,
+  Repeat,
+  Trash2,
+  UserCog,
+  UserPlus,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function AdminProjects() {
@@ -45,10 +57,13 @@ export function AdminProjects() {
     removeRecurringRule,
     toggleRecurringRule,
     updateRecurringRule,
+    setProjectArchived,
+    setProjectOrder,
     isFullAdmin,
   } = useOrbit()
   const toast = useToast()
   const [removing, setRemoving] = useState<Project | null>(null)
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null)
   const [applyingTo, setApplyingTo] = useState<Project | null>(null)
   const [managingMembersOf, setManagingMembersOf] = useState<Project | null>(null)
   const [managingOwnerOf, setManagingOwnerOf] = useState<Project | null>(null)
@@ -75,6 +90,19 @@ export function AdminProjects() {
     setName('')
     setDescription('')
     setType('')
+  }
+
+  const activeList = useMemo(() => projects.filter((p) => !p.archived), [projects])
+  const archivedList = useMemo(() => projects.filter((p) => p.archived), [projects])
+
+  // プロジェクトの表示順（並び替え） — アーカイブ済みは並び替え対象外なので
+  // 元の順序のまま末尾に残し、アクティブなものだけ入れ替える
+  const reorderProjects = (draggedId: string, dropOnId: string) => {
+    if (draggedId === dropOnId) return
+    const activeIds = activeList.map((p) => p.id)
+    const next = activeIds.filter((id) => id !== draggedId)
+    next.splice(next.indexOf(dropOnId), 0, draggedId)
+    setProjectOrder([...next, ...archivedList.map((p) => p.id)])
   }
 
   return (
@@ -136,6 +164,7 @@ export function AdminProjects() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs text-muted-foreground">
+              {isFullAdmin && <th className="w-8 px-2 py-2.5" />}
               <th className="px-4 py-2.5 font-medium">プロジェクト</th>
               <th className="px-4 py-2.5 font-medium">種類</th>
               <th className="px-4 py-2.5 font-medium">概要</th>
@@ -146,12 +175,28 @@ export function AdminProjects() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {projects.map((p) => {
+            {activeList.map((p) => {
               const pm = getProjectMembers(p.id)
               const owner = members.find((m) => m.id === p.ownerId)
               const taskCount = visibleTasks.filter((t) => t.projectId === p.id).length
               return (
-                <tr key={p.id}>
+                <tr
+                  key={p.id}
+                  draggable={isFullAdmin}
+                  onDragStart={() => setDraggingProjectId(p.id)}
+                  onDragOver={(e) => isFullAdmin && e.preventDefault()}
+                  onDrop={() => {
+                    if (draggingProjectId) reorderProjects(draggingProjectId, p.id)
+                    setDraggingProjectId(null)
+                  }}
+                  onDragEnd={() => setDraggingProjectId(null)}
+                  className={cn(draggingProjectId === p.id && 'opacity-40')}
+                >
+                  {isFullAdmin && (
+                    <td className="w-8 cursor-grab px-2 py-3 text-muted-foreground">
+                      <GripVertical className="size-3.5" />
+                    </td>
+                  )}
                   <td className="px-4 py-3 font-medium">{p.name}</td>
                   <td className="px-4 py-3">
                     {p.type ? <Tag>{p.type}</Tag> : <span className="text-muted-foreground">—</span>}
@@ -227,6 +272,16 @@ export function AdminProjects() {
                           </button>
                         )}
                         <button
+                          onClick={() => {
+                            setProjectArchived(p.id, true)
+                            toast(`「${p.name}」をアーカイブしました`)
+                          }}
+                          className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary"
+                        >
+                          <Archive className="size-3.5" />
+                          アーカイブ
+                        </button>
+                        <button
                           onClick={() => setRemoving(p)}
                           className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
                         >
@@ -242,6 +297,40 @@ export function AdminProjects() {
           </tbody>
         </table>
       </div>
+
+      {isFullAdmin && archivedList.length > 0 && (
+        <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card">
+          <div className="border-b border-border px-4 py-2.5 text-sm font-medium text-muted-foreground">
+            アーカイブ済みプロジェクト（{archivedList.length}）
+          </div>
+          <ul className="divide-y divide-border">
+            {archivedList.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                <span className="min-w-0 truncate text-muted-foreground">{p.name}</span>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    onClick={() => {
+                      setProjectArchived(p.id, false)
+                      toast(`「${p.name}」のアーカイブを解除しました`)
+                    }}
+                    className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary"
+                  >
+                    <ArchiveRestore className="size-3.5" />
+                    アーカイブ解除
+                  </button>
+                  <button
+                    onClick={() => setRemoving(p)}
+                    className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                  >
+                    <Trash2 className="size-3.5" />
+                    削除
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Project-type templates */}
       {isFullAdmin && (

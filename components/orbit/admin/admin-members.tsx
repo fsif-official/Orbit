@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Search, Bell, UserMinus, UserPlus, FolderKanban, Check } from 'lucide-react'
 import { BASE_ROLE } from '@/lib/orbit/types'
 import type { Member, Role } from '@/lib/orbit/types'
+import { tenureYears } from '@/lib/orbit/utils'
 
 function workload(count: number): { label: string; className: string } {
   if (count <= 2) return { label: '稼働少なめ', className: 'text-muted-foreground' }
@@ -41,8 +42,9 @@ export function AdminMembers() {
   const [removing, setRemoving] = useState<Member | null>(null)
   const [assigningProjects, setAssigningProjects] = useState<Member | null>(null)
   // 人材検索: filters beyond the free-text query, using the talent-management
-  // fields set on the person page's 経歴・キャリア tab
-  const [minYears, setMinYears] = useState('')
+  // fields set on the person page's 経歴・キャリア tab。経験年数（自己申告の
+  // 概数）ではなく、正確な所属日(joinedAt)ベースの所属歴で絞り込む
+  const [minTenureYears, setMinTenureYears] = useState('')
   const [managementOnly, setManagementOnly] = useState(false)
   const [desiredArea, setDesiredArea] = useState('')
   const ROLES: Role[] = [BASE_ROLE, ...roleLevels]
@@ -75,7 +77,7 @@ export function AdminMembers() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const min = minYears.trim() ? Number(minYears) : null
+    const minTenure = minTenureYears.trim() ? Number(minTenureYears) : null
     return members.filter((m) => {
       if (q) {
         const matchesText = [
@@ -88,12 +90,12 @@ export function AdminMembers() {
         ].some((v) => v.toLowerCase().includes(q))
         if (!matchesText) return false
       }
-      if (min !== null && (m.yearsOfExperience ?? 0) < min) return false
+      if (minTenure !== null && (!m.joinedAt || tenureYears(m.joinedAt) < minTenure)) return false
       if (managementOnly && !m.hasManagementExperience) return false
       if (desiredArea && !(m.desiredAreas ?? []).includes(desiredArea)) return false
       return true
     })
-  }, [members, query, minYears, managementOnly, desiredArea])
+  }, [members, query, minTenureYears, managementOnly, desiredArea])
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
@@ -158,9 +160,10 @@ export function AdminMembers() {
         <input
           type="number"
           min={0}
-          value={minYears}
-          onChange={(e) => setMinYears(e.target.value)}
-          placeholder="経験年数以上"
+          value={minTenureYears}
+          onChange={(e) => setMinTenureYears(e.target.value)}
+          placeholder="所属○年以上"
+          title="所属日（joinedAt）からの正確な所属歴で絞り込みます"
           className="h-9 w-28 rounded-lg border border-border bg-card px-2.5 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
         />
         <label className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-sm">

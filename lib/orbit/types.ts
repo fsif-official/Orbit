@@ -259,6 +259,9 @@ export interface Project {
   memberIds?: string[]
   // 責任者 — the member accountable for this project overall
   ownerId?: string
+  // アーカイブ — 終了したプロジェクトを一覧から隠す（削除とは異なり、
+  // タスク履歴などのデータは残したまま非表示にするだけ）
+  archived?: boolean
 }
 
 // A template task an admin defines for a Project type (store.tsx's

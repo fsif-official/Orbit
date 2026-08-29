@@ -232,6 +232,7 @@ function mapProjectRow(r: Record<string, string>): Project {
     type: r.type || undefined,
     memberIds: memberIds.length > 0 ? memberIds : undefined,
     ownerId: r.owner_id || undefined,
+    archived: r.archived === 'TRUE',
   }
 }
 
@@ -344,6 +345,12 @@ export interface RemoteSettings {
   skillFieldOptions: string[]
   skillFieldSkills: Record<string, string[]>
   skillFieldThreshold: number | null
+  // 団体メール — 個々のメンバーの通知設定に関わらず常に通知先へ含める
+  // 共有配信先アドレス（幹部/事業責任者=full adminがAdmin > Tagsで追加）
+  orgNotificationEmails: string[]
+  // プロジェクトの表示順（プロジェクトIDの配列）— Admin > Projectsのドラッグ
+  // 並び替えで設定。載っていないIDは末尾に元の順序のまま追加される
+  projectOrder: string[]
 }
 
 // Reads the optional "Settings" sheet (key,value rows) — see
@@ -409,6 +416,8 @@ export async function fetchSettings(): Promise<RemoteSettings> {
     skillFieldOptions: splitTags(byKey.get('skill_field_options')),
     skillFieldSkills,
     skillFieldThreshold: Number.isFinite(skillFieldThreshold) ? skillFieldThreshold : null,
+    orgNotificationEmails: splitTags(byKey.get('org_notification_emails')),
+    projectOrder: splitTags(byKey.get('project_order')),
   }
 }
 
@@ -496,6 +505,8 @@ export const remoteApi = {
     postToGas('updateJudgment', { memberId, judgment }),
   approveTask: (taskId: string) => postToGas('approveTask', { taskId }),
   removeTask: (taskId: string) => postToGas('removeTask', { taskId }),
+  notifyTaskRejected: (creatorId: string | undefined, taskName: string, reason: string | undefined) =>
+    postToGas('notifyTaskRejected', { creatorId, taskName, reason }),
   createProject: (name: string, description: string, type?: string) =>
     postToGas<{ id: string }>('createProject', { name, description, type }),
   removeProject: (projectId: string) => postToGas('removeProject', { projectId }),
@@ -555,6 +566,8 @@ export const remoteApi = {
     postToGas('updateProjectOwner', { projectId, ownerId }),
   updateProjectDetails: (projectId: string, description: string, type: string | undefined) =>
     postToGas('updateProjectDetails', { projectId, description, type }),
+  updateProjectArchived: (projectId: string, archived: boolean) =>
+    postToGas('updateProjectArchived', { projectId, archived }),
   updateComments: (taskId: string, comments: TaskComment[]) =>
     postToGas('updateComments', { taskId, comments }),
   notifyMention: (taskId: string, commentText: string, memberIds: string[]) =>
